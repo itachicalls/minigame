@@ -15,6 +15,7 @@ export class UIManager {
   private game: Game | null = null;
   private screen: Screen = 'menu';
   private hudCache: Partial<HudData> = {};
+  private tapHintTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(root: HTMLElement, save: SaveManager) {
     this.root = root;
@@ -29,6 +30,10 @@ export class UIManager {
   }
 
   private clear(): void {
+    if (this.tapHintTimer) {
+      clearTimeout(this.tapHintTimer);
+      this.tapHintTimer = null;
+    }
     this.root.innerHTML = '';
   }
 
@@ -342,6 +347,11 @@ export class UIManager {
     btn.addEventListener('pointerdown', (e) => e.stopPropagation());
 
     this.game.startLevel(levelId);
+
+    this.tapHintTimer = setTimeout(() => {
+      document.getElementById('tap-hint')?.classList.add('hidden');
+      this.tapHintTimer = null;
+    }, 3000);
   }
 
   private updateHud(d: HudData): void {

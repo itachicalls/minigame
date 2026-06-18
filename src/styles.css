@@ -465,7 +465,7 @@ kbd {
   color: #FFE0B2;
   animation: throw-ready-hint 1s infinite alternate;
 }
-.tap-hint.hidden { opacity: 0; }
+.tap-hint.hidden { display: none; }
 @keyframes throw-ready-hint {
   from { box-shadow: 0 0 8px rgba(255,152,0,0.2); }
   to { box-shadow: 0 0 20px rgba(255,152,0,0.5); }
