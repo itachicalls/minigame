@@ -555,13 +555,18 @@ kbd {
   left: 50%;
   transform: translateX(-50%);
   display: flex;
-  gap: 14px;
+  gap: 10px;
   pointer-events: auto;
   z-index: 4;
+  flex-wrap: nowrap;
 }
 
 .mail-btn { border-color: rgba(255,213,79,0.55); }
 .mail-btn.ready { border-color: #FFD54F; box-shadow: 0 0 16px rgba(255,213,79,0.35); }
+.throw-btn { border-color: rgba(255,152,0,0.55); }
+.throw-btn.ready { border-color: #FF9800; box-shadow: 0 0 16px rgba(255,152,0,0.35); }
+.jump-btn { border-color: rgba(66,165,245,0.55); }
+.jump-btn.ready { border-color: #42A5F5; box-shadow: 0 0 16px rgba(66,165,245,0.35); }
 
 .hud-panel {
   position: absolute;

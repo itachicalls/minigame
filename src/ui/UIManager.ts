@@ -129,10 +129,12 @@ export class UIManager {
         <h1>${lvl.name}</h1>
         <div class="briefing-box">${lvl.briefing}</div>
         <div class="controls-grid">
-          <div class="control-item"><kbd>A</kbd><kbd>D</kbd> Steer · Hold at gates to pick lane</div>
-          <div class="control-item"><span class="tap-icon">👆</span> Tap = throw 📦 (8 dmg)</div>
-          <div class="control-item"><kbd>SPACE</kbd> / 📧 = mail gun (3 dmg)</div>
-          <div class="control-item">⚡ Ability button · Convoy fights aliens</div>
+          <div class="control-item"><kbd>A</kbd><kbd>D</kbd> Steer lanes</div>
+          <div class="control-item"><kbd>SPACE</kbd> Jump obstacles</div>
+          <div class="control-item"><span class="tap-icon">👆</span> Left click / left tap = mail gun</div>
+          <div class="control-item"><span class="tap-icon">👆</span> Right click / right tap = throw 📦</div>
+          <div class="control-item">Forks: swerve left, center, or right — no stopping!</div>
+          <div class="control-item">⚡ Ability · Convoy auto-fights aliens</div>
         </div>
         <button class="btn btn-primary btn-glow" id="btn-start">🚀 Start Delivery</button>
         <button class="btn btn-secondary" id="btn-back">← Back</button>
@@ -278,32 +280,34 @@ export class UIManager {
 
         <div class="gate-prompt hidden" id="gate-prompt"></div>
 
-        <div class="blocker-hint hidden" id="blocker-hint"></div>
-
-        <div class="tap-hint" id="tap-hint">Tap = throw 📦 · SPACE = mail gun</div>
+        <div class="tap-hint" id="tap-hint">LMB mail · RMB throw · SPACE jump</div>
 
         <div class="combat-banner hidden" id="combat-banner">
           <div class="combat-title" id="combat-title">⚠ INTERCEPT!</div>
           <div class="combat-bar-wrap">
             <div class="combat-bar-fill" id="combat-bar"></div>
           </div>
-          <div class="combat-hint">📦 Tap = heavy throw · SPACE = mail gun · Convoy fights for you</div>
+          <div class="combat-hint">LMB mail · RMB throw 📦 · Convoy fights for you</div>
         </div>
 
-        <div class="scan-prompt hidden" id="scan-prompt">
-          <div class="scan-icon">📷</div>
-          <div>SCAN BARCODE</div>
-          <button class="scan-btn" id="scan-btn" type="button">SCAN</button>
-          <div class="scan-sub">or press SPACE</div>
-        </div>
+        <div class="scan-prompt hidden" id="scan-prompt"></div>
 
         <div class="damage-flash hidden" id="damage-flash"></div>
 
         <div class="hud-bottom">
-          <button class="action-btn mail-btn" id="mail-btn" title="Mail gun (SPACE)">
+          <button class="action-btn jump-btn" id="jump-btn" title="Jump (SPACE)">
+            <span class="action-icon">⬆</span>
+            <span>JUMP</span>
+          </button>
+          <button class="action-btn mail-btn" id="mail-btn" title="Mail gun (Left click)">
             <span class="action-icon">📧</span>
             <span>MAIL</span>
             <div class="ability-cd hidden" id="mail-cd"></div>
+          </button>
+          <button class="action-btn throw-btn" id="throw-btn" title="Throw package (Right click)">
+            <span class="action-icon">📦</span>
+            <span>THROW</span>
+            <div class="ability-cd hidden" id="throw-cd"></div>
           </button>
           <button class="action-btn ability-btn" id="ability-btn" disabled title="Equipped ability">
             <span class="action-icon">⚡</span>
@@ -320,9 +324,6 @@ export class UIManager {
     this.game = new Game(canvas, this.save.get(), {
       onHudUpdate: (d) => this.updateHud(d),
       onToast: (msg) => this.toast(msg),
-      onScanPrompt: (show) => {
-        document.getElementById('scan-prompt')?.classList.toggle('hidden', !show);
-      },
       onCombat: (active) => {
         document.getElementById('combat-banner')?.classList.toggle('hidden', !active);
       },
@@ -351,14 +352,19 @@ export class UIManager {
     const hudEl = document.getElementById('hud')!;
     this.game.bindTouchControls(hudEl);
 
-    document.getElementById('scan-btn')!.addEventListener('click', (e) => {
+    document.getElementById('jump-btn')!.addEventListener('click', (e) => {
       e.stopPropagation();
-      this.game?.onSpaceAction();
+      this.game?.jump();
     });
 
     document.getElementById('mail-btn')!.addEventListener('click', (e) => {
       e.stopPropagation();
-      this.game?.onSpaceAction();
+      this.game?.fireMailGun();
+    });
+
+    document.getElementById('throw-btn')!.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.game?.throwPackage();
     });
 
     btn.addEventListener('pointerdown', (e) => e.stopPropagation());
@@ -403,26 +409,10 @@ export class UIManager {
     }
 
     const blockerHint = document.getElementById('blocker-hint');
-    if (blockerHint) {
-      if (d.blockerHint) {
-        blockerHint.textContent = d.blockerHint;
-        blockerHint.classList.remove('hidden');
-        blockerHint.classList.toggle('near-done', (d.blockerProgress ?? 0) >= 75);
-      } else {
-        blockerHint.classList.add('hidden');
-        blockerHint.classList.remove('near-done');
-      }
-    }
+    if (blockerHint) blockerHint.classList.add('hidden');
 
     const gatePrompt = document.getElementById('gate-prompt');
-    if (gatePrompt) {
-      if (d.gatePrompt) {
-        gatePrompt.textContent = d.gatePrompt;
-        gatePrompt.classList.remove('hidden');
-      } else {
-        gatePrompt.classList.add('hidden');
-      }
-    }
+    if (gatePrompt) gatePrompt.classList.add('hidden');
 
     const mailCd = document.getElementById('mail-cd');
     const mailBtn = document.getElementById('mail-btn');
@@ -430,12 +420,22 @@ export class UIManager {
       mailBtn.classList.toggle('ready', d.mailGunReady);
       if (d.mailGunReady) {
         mailCd.classList.add('hidden');
-        mailCd.textContent = '';
       } else {
         mailCd.classList.remove('hidden');
         mailCd.textContent = '!';
       }
     }
+
+    const throwCdEl = document.getElementById('throw-cd');
+    const throwBtn = document.getElementById('throw-btn');
+    if (throwCdEl && throwBtn) {
+      throwBtn.classList.toggle('ready', d.throwReady);
+      throwCdEl.classList.toggle('hidden', d.throwReady);
+      if (!d.throwReady) throwCdEl.textContent = '!';
+    }
+
+    const jumpBtn = document.getElementById('jump-btn');
+    if (jumpBtn) jumpBtn.classList.toggle('ready', d.jumpReady);
 
     const tapHint = document.getElementById('tap-hint');
     if (tapHint) {

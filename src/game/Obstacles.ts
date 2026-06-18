@@ -118,6 +118,16 @@ export function createObstacle(scene: THREE.Scene, type: ObstacleKind, x: number
   return { mesh: group, x, z, kind: type, radius, hit: false };
 }
 
+export function obstacleClearHeight(kind: ObstacleKind): number {
+  const heights: Record<ObstacleKind, number> = {
+    cones: 0.42,
+    debris: 0.48,
+    pod: 0.52,
+    barricade: 0.82,
+  };
+  return heights[kind];
+}
+
 export function updateObstacles(obstacles: ObstacleEntity[], time: number): void {
   for (const o of obstacles) {
     if (o.hit) continue;

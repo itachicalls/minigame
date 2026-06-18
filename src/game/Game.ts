@@ -4,15 +4,12 @@ import { Player } from './Player';
 import { Convoy } from './Convoy';
 import {
   createRouteGate,
-  createBlocker,
   createDropoff,
   applyGateEffect,
   disposeEntity,
   animateGate,
-  animateBlocker,
   animateDropoff,
   type GateEntity,
-  type BlockerEntity,
   type DropoffEntity,
 } from './Gates';
 import {
@@ -28,6 +25,7 @@ import {
   createObstacle,
   updateObstacles,
   disposeObstacles,
+  obstacleClearHeight,
   type ObstacleEntity,
 } from './Obstacles';
 import {
@@ -50,7 +48,6 @@ import { INITIAL_RUN } from '../types';
 export type GameCallbacks = {
   onHudUpdate: (data: HudData) => void;
   onToast: (msg: string) => void;
-  onScanPrompt: (show: boolean) => void;
   onCombat: (active: boolean, enemyName?: string) => void;
   onDamageFlash: () => void;
   onEnd: (result: GameResult) => void;
@@ -71,9 +68,7 @@ export type HudData = {
   abilityReady: boolean;
   throwReady: boolean;
   mailGunReady: boolean;
-  blockerHint?: string;
-  gatePrompt?: string;
-  blockerProgress?: number;
+  jumpReady: boolean;
   inCombat: boolean;
   enemyHp?: number;
   enemyMaxHp?: number;
@@ -81,6 +76,7 @@ export type HudData = {
 };
 
 export class Game {
+  private canvas: HTMLCanvasElement;
   private renderer: THREE.WebGLRenderer;
   private scene: THREE.Scene;
   private camera: THREE.PerspectiveCamera;
@@ -95,7 +91,6 @@ export class Game {
   private save: SaveData;
 
   private routeGates: GateEntity[] = [];
-  private blockers: BlockerEntity[] = [];
   private enemies: EnemyEntity[] = [];
   private coins: CoinEntity[] = [];
   private packagePickups: PackagePickup[] = [];
@@ -116,7 +111,6 @@ export class Game {
   private obstacleCooldown = 0;
   private gameTime = 0;
 
-  private activeBlocker: BlockerEntity | null = null;
   private activeEnemy: EnemyEntity | null = null;
   private smokeTimer = 0;
   private dashTimer = 0;
@@ -128,30 +122,22 @@ export class Game {
   private mailGunDamage = 3;
   private mailGunRate = 0.28;
   private combatTurretDps = 0;
-  private blockerDps = 0;
   private regenTimer = 0;
   private spawnQueue: EnemyType[] = [];
   private startConvoy = 5;
   private startPackages = 3;
   private coinRadius = 2;
   private packageRadius = 2.2;
-  private turretDps = 0;
   private beaconRegen = 0;
-  private blockerHint = '';
-  private gateHintShown = new Set<number>();
-  private gateLaneHold = new Map<number, { left: number; right: number }>();
-  private gatePrompt = '';
-  private bounceWarned = new Set<number>();
-  private lastBlockerToastPct = -1;
   private deathReason: DeathReason = 'stolen';
 
   private cb: GameCallbacks;
-  private lastSteer: -1 | 0 | 1 = 0;
   private raf = 0;
   private baseCamera = new THREE.Vector3();
   private lookTarget = new THREE.Vector3();
 
   constructor(canvas: HTMLCanvasElement, save: SaveData, callbacks: GameCallbacks) {
+    this.canvas = canvas;
     this.save = save;
     this.cb = callbacks;
 
@@ -169,6 +155,7 @@ export class Game {
     this.shake = new CameraShake();
 
     this.bindKeyboard();
+    this.bindPointer();
     window.addEventListener('resize', () => this.resize());
     if (window.visualViewport) {
       window.visualViewport.addEventListener('resize', () => this.resize());
@@ -176,11 +163,10 @@ export class Game {
     this.resize();
   }
 
-  /** Tap-to-throw on HUD + hold left/right steer zones */
   bindTouchControls(hudEl: HTMLElement): void {
     this.inputCleanup?.();
-
     const cleanups: (() => void)[] = [];
+
     const bindSteer = (el: Element | null, left: boolean) => {
       if (!el) return;
       const set = (active: boolean) => {
@@ -206,17 +192,20 @@ export class Game {
     bindSteer(hudEl.querySelector('#steer-left'), true);
     bindSteer(hudEl.querySelector('#steer-right'), false);
 
-    const onHudPointer = (e: PointerEvent) => {
+    const onFireZone = (e: PointerEvent) => {
       if (!this.running || this.dead) return;
       const t = e.target as HTMLElement;
-      if (t.closest('#steer-left, #steer-right, #ability-btn, #scan-btn, #mail-btn, .hud-panel, .btn')) return;
-      if (e.pointerType === 'mouse' && e.button !== 0) return;
-      this.throwPackage();
+      if (t.closest('#steer-left, #steer-right, #ability-btn, #jump-btn, #throw-btn, #mail-btn, .hud-panel, .btn')) return;
+
+      const rect = hudEl.getBoundingClientRect();
+      const relX = (e.clientX - rect.left) / rect.width;
+      if (relX < 0.42) this.fireMailGun();
+      else if (relX > 0.58) this.throwPackage();
     };
-    hudEl.addEventListener('pointerdown', onHudPointer);
+    hudEl.addEventListener('pointerdown', onFireZone);
 
     this.inputCleanup = () => {
-      hudEl.removeEventListener('pointerdown', onHudPointer);
+      hudEl.removeEventListener('pointerdown', onFireZone);
       cleanups.forEach((fn) => fn());
     };
   }
@@ -232,7 +221,6 @@ export class Game {
     this.elapsed = 0;
     this.gameTime = 0;
     this.spawnQueue = [];
-    this.activeBlocker = null;
     this.activeEnemy = null;
     this.throws = [];
     this.smokeTimer = 0;
@@ -241,12 +229,6 @@ export class Game {
     this.abilityCd = 0;
     this.throwCd = 0;
     this.mailCd = 0;
-    this.blockerHint = '';
-    this.gateHintShown.clear();
-    this.gateLaneHold.clear();
-    this.gatePrompt = '';
-    this.bounceWarned.clear();
-    this.lastBlockerToastPct = -1;
     this.touchSteerLeft = false;
     this.touchSteerRight = false;
 
@@ -265,10 +247,7 @@ export class Game {
 
     this.coinRadius = 2 + (this.save.purchases['coin-magnet'] ?? 0) * 0.6;
     this.packageRadius = 2.2 + (this.save.purchases['coin-magnet'] ?? 0) * 0.4;
-    this.turretDps = 0;
     this.combatTurretDps = 0;
-    this.blockerDps = 0;
-    this.beaconRegen = 0;
     this.mailGunDamage = 3;
     this.mailGunRate = 0.28;
     if (this.save.equippedTurrets.includes('pepper-drone')) {
@@ -278,10 +257,8 @@ export class Game {
     }
     if (this.save.equippedTurrets.includes('box-cannon')) {
       const lv = this.save.purchases['box-cannon'] ?? 0;
-      this.blockerDps += 2 + lv * 2;
       this.mailGunDamage += 1 + lv;
     }
-    this.turretDps = this.combatTurretDps + this.blockerDps * 0.5;
     if (this.save.equippedTurrets.includes('helper-beacon')) {
       this.beaconRegen = 0.5 + (this.save.purchases['helper-beacon'] ?? 0) * 0.5;
     }
@@ -303,11 +280,6 @@ export class Game {
       switch (seg.kind) {
         case 'gate':
           this.routeGates.push(createRouteGate(this.scene, seg.z, seg.left, seg.right));
-          break;
-        case 'blocker':
-          this.blockers.push(
-            createBlocker(this.scene, seg.z, seg.blocker, seg.label, seg.required ?? 10, seg.packageCost ?? 0)
-          );
           break;
         case 'enemy':
           this.enemies.push(createEnemy(this.scene, seg.enemy, seg.count, seg.z));
@@ -348,60 +320,33 @@ export class Game {
       this.keys.add(e.code);
       if (e.code === 'Space') {
         e.preventDefault();
-        if (!e.repeat) this.onSpaceAction();
+        if (!e.repeat) this.jump();
       }
-      if (e.code === 'ArrowLeft' || e.code === 'KeyA') {
-        e.preventDefault();
-        this.lastSteer = -1;
-      }
-      if (e.code === 'ArrowRight' || e.code === 'KeyD') {
-        e.preventDefault();
-        this.lastSteer = 1;
-      }
+      if (e.code === 'ArrowLeft' || e.code === 'KeyA') e.preventDefault();
+      if (e.code === 'ArrowRight' || e.code === 'KeyD') e.preventDefault();
     });
     window.addEventListener('keyup', (e) => {
       this.keys.delete(e.code);
     });
   }
 
-  /** SPACE = mail gun / scan / gate interact (never auto-fires) */
-  onSpaceAction(): void {
+  private bindPointer(): void {
+    this.canvas.addEventListener('mousedown', (e) => {
+      if (!this.running || this.dead) return;
+      if (e.button === 0) {
+        e.preventDefault();
+        this.fireMailGun();
+      } else if (e.button === 2) {
+        e.preventDefault();
+        this.throwPackage();
+      }
+    });
+    this.canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+  }
+
+  jump(): void {
     if (!this.running || this.dead) return;
-
-    if (this.activeBlocker && !this.activeBlocker.cleared) {
-      if (this.activeBlocker.blocker === 'scan') {
-        this.tryScan();
-        return;
-      }
-      if (Math.abs(this.player.z - this.activeBlocker.z) <= 10) {
-        this.tryBlockerAction();
-        return;
-      }
-    }
-
-    const routeGate = this.getActiveRouteGate();
-    if (routeGate && Math.abs(this.player.x) < 1.0) {
-      this.resolveRouteGate(routeGate, 'center');
-      return;
-    }
-
-    this.fireMailGun();
-  }
-
-  private isSteeringLeft(): boolean {
-    return this.keys.has('KeyA') || this.keys.has('ArrowLeft') || this.touchSteerLeft;
-  }
-
-  private isSteeringRight(): boolean {
-    return this.keys.has('KeyD') || this.keys.has('ArrowRight') || this.touchSteerRight;
-  }
-
-  private getActiveRouteGate(): GateEntity | null {
-    for (const gate of this.routeGates) {
-      if (gate.resolved) continue;
-      if (this.player.z >= gate.z - 4 && this.player.z <= gate.z + 2) return gate;
-    }
-    return null;
+    if (this.player.jump()) this.shake.shake(0.08);
   }
 
   throwPackage(): void {
@@ -419,11 +364,9 @@ export class Game {
       ? this.activeEnemy.mesh.position
       : new THREE.Vector3(this.player.x, 0, this.player.z + 30);
 
-    const t = spawnThrow(this.scene, this.player.x, this.player.z, target.x, target.z);
-    this.throws.push(t);
+    this.throws.push(spawnThrow(this.scene, this.player.x, this.player.z, target.x, target.z));
   }
 
-  /** Mail gun — SPACE or 📧 button; weaker than package throws */
   fireMailGun(): void {
     if (!this.running || this.dead || this.mailCd > 0) return;
 
@@ -435,103 +378,11 @@ export class Game {
     if (this.activeEnemy && !this.activeEnemy.defeated) {
       targetX = this.activeEnemy.mesh.position.x;
       targetZ = this.activeEnemy.mesh.position.z;
-    } else if (this.activeBlocker && !this.activeBlocker.cleared) {
-      targetX = 0;
-      targetZ = this.activeBlocker.z;
     }
 
-    const shot = spawnMailShot(this.scene, this.player.x, this.player.z, targetX, targetZ, this.mailGunDamage);
-    this.throws.push(shot);
-  }
-
-  /** Player-initiated blocker progress — no passive auto-open */
-  tryBlockerAction(): void {
-    const b = this.activeBlocker;
-    if (!b || b.cleared) return;
-    if (Math.abs(this.player.z - b.z) > 10) return;
-
-    if (b.packageCost > 0 && b.progress < 0.05) {
-      if (this.run.packages < b.packageCost) {
-        this.cb.onToast(`Need ${b.packageCost} packages to use this gate!`);
-        return;
-      }
-      this.run.packages -= b.packageCost;
-      b.progress = 0.05;
-      this.cb.onToast(`Paid ${b.packageCost} packages`);
-    }
-
-    if (b.blocker === 'ram') {
-      if (this.dashActive) {
-        this.clearBlocker(b);
-        this.shake.shake(0.8);
-        this.cb.onToast('Dash smashed the lock!');
-        return;
-      }
-      if (this.run.convoy < 2) {
-        this.cb.onToast('Need convoy helpers! Hold SPACE to ram, or equip Rally Horn.');
-        return;
-      }
-      const ramHit = (1 / Math.max(4, b.required)) * (0.95 + this.mailGunDamage * 0.04);
-      b.progress = Math.min(1, b.progress + ramHit);
-      if (Math.random() < 0.35) {
-        this.run.convoy = Math.max(0, this.run.convoy - 1);
-        this.convoy.setCount(this.run.convoy);
-      }
-      this.shake.shake(0.15);
-      if (b.progress >= 1) {
-        this.clearBlocker(b);
-        this.particles.gateBurst(0, b.z, '#FF5252');
-        this.cb.onToast('Lock broken!');
-      } else {
-        const pct = Math.floor(b.progress * 100);
-        if (pct >= 25 && pct !== this.lastBlockerToastPct && pct % 25 === 0) {
-          this.lastBlockerToastPct = pct;
-          this.cb.onToast(`Ramming… ${pct}%`);
-        }
-      }
-      return;
-    }
-
-    if (b.blocker === 'stamp') {
-      if (this.run.stamps > 0) {
-        b.progress += 0.5;
-        if (b.progress >= 1) {
-          this.run.stamps--;
-          this.clearBlocker(b);
-          this.particles.gateBurst(0, b.z, '#AB47BC');
-          this.cb.onToast('Stamp approved!');
-        } else {
-          this.cb.onToast(`Stamping… ${Math.floor(b.progress * 100)}%`);
-        }
-      } else if (this.run.convoy >= 4) {
-        b.progress += 0.18;
-        if (b.progress >= 1) {
-          this.run.convoy = Math.max(0, this.run.convoy - 3);
-          this.convoy.setCount(this.run.convoy);
-          this.clearBlocker(b);
-          this.cb.onToast('Convoy vouched for you!');
-        }
-      } else {
-        this.cb.onToast('Need a stamp or 4+ convoy helpers — press SPACE to retry');
-      }
-      return;
-    }
-
-    if (b.blocker === 'toll') {
-      if (this.run.packages > 0) {
-        this.run.packages--;
-        b.progress += 0.34;
-        if (b.progress >= 1) {
-          this.clearBlocker(b);
-          this.particles.gateBurst(0, b.z, '#FFB74D');
-          this.cb.onToast('Toll paid — gate open!');
-        } else {
-          this.cb.onToast(`Paying toll… ${Math.floor(b.progress * 100)}%`);
-        }
-      } else {
-        this.cb.onToast('Need packages to pay toll — collect 📦 on the road');
-      }
-    }
+    this.throws.push(
+      spawnMailShot(this.scene, this.player.x, this.player.z, targetX, targetZ, this.mailGunDamage)
+    );
   }
 
   useAbility(): void {
@@ -554,19 +405,6 @@ export class Game {
       this.cb.onToast('Express dash!');
     }
     this.abilityCd = this.abilityMaxCd;
-  }
-
-  tryScan(): void {
-    if (!this.activeBlocker || this.activeBlocker.blocker !== 'scan') return;
-    if (Math.abs(this.player.z - this.activeBlocker.z) > 12) return;
-    this.activeBlocker.progress += 0.34;
-    if (this.activeBlocker.progress >= 1) {
-      this.clearBlocker(this.activeBlocker);
-      this.particles.gateBurst(this.player.x, this.activeBlocker.z, '#00E676');
-      this.cb.onToast('Scan complete! Gate open!');
-    } else {
-      this.cb.onToast(`Scanning… ${Math.ceil(this.activeBlocker.progress * 100)}%`);
-    }
   }
 
   stop(): void {
@@ -595,40 +433,22 @@ export class Game {
       this.dashTimer -= dt;
       if (this.dashTimer <= 0) this.dashActive = false;
     }
-
     if (this.obstacleCooldown > 0) this.obstacleCooldown -= dt;
 
     const inCombat = this.activeEnemy !== null && !this.activeEnemy.defeated;
-    const inBlocker = this.activeBlocker !== null && !this.activeBlocker.cleared;
-
-    if (!inCombat && !inBlocker) {
-      this.player.z += this.run.speed * dt;
-    } else if (inBlocker && this.activeBlocker?.blocker === 'scan') {
-      this.player.z += this.run.speed * 0.08 * dt;
-    } else if (inCombat) {
-      this.player.z += this.run.speed * 0.05 * dt;
-    }
-
-    if (inBlocker && this.activeBlocker && !this.activeBlocker.cleared) {
-      const cap = this.activeBlocker.z - 1.2;
-      if (this.player.z > cap) this.player.z = cap;
-    }
-
-    this.enforceRouteGateStops();
+    const speedMul = inCombat ? 0.72 : 1;
+    this.player.z += this.run.speed * speedMul * dt;
     this.run.distance = this.player.z;
 
     if (this.keys.has('ArrowLeft') || this.keys.has('KeyA') || this.touchSteerLeft) {
-      this.lastSteer = -1;
       this.player.targetX += this.steerSpeed * dt;
     }
     if (this.keys.has('ArrowRight') || this.keys.has('KeyD') || this.touchSteerRight) {
-      this.lastSteer = 1;
       this.player.targetX -= this.steerSpeed * dt;
     }
     this.player.targetX = THREE.MathUtils.clamp(this.player.targetX, -this.roadHalfWidth, this.roadHalfWidth);
 
-    const moving = !inCombat && !inBlocker;
-    this.player.update(dt, this.roadHalfWidth, moving);
+    this.player.update(dt, this.roadHalfWidth, true);
     this.convoy.setCount(this.run.convoy);
     this.convoy.update(this.player.x, this.player.z, dt);
 
@@ -639,7 +459,6 @@ export class Game {
     this.world.update(this.gameTime);
 
     for (const g of this.routeGates) if (!g.resolved) animateGate(g, this.gameTime);
-    for (const b of this.blockers) if (!b.cleared) animateBlocker(b, this.gameTime);
     if (this.dropoff) animateDropoff(this.dropoff, this.gameTime);
 
     for (const e of this.enemies) updateEnemyVisuals(e, this.gameTime, this.player.z);
@@ -655,23 +474,11 @@ export class Game {
     if (pkgGain) {
       this.run.packages = Math.min(this.run.maxPackages, this.run.packages + pkgGain);
       this.particles.collectBurst(this.player.x, this.player.z);
-      this.cb.onToast(`+${pkgGain} package${pkgGain > 1 ? 's' : ''}!`);
     }
 
     this.checkThrowHits();
     this.checkObstacles();
-
-    if (this.dashActive && this.activeBlocker && !this.activeBlocker.cleared) {
-      if (this.activeBlocker.blocker === 'ram' && Math.abs(this.player.z - this.activeBlocker.z) < 10) {
-        this.clearBlocker(this.activeBlocker);
-        this.shake.shake(0.8);
-        this.cb.onToast('Dash smashed the lock!');
-      }
-    }
-
-    this.updateRouteGateCommit(dt);
     this.checkRouteGates();
-    this.checkBlockers(dt);
     this.checkEnemies(dt);
     this.processSpawnQueue();
     this.checkDropoff();
@@ -713,48 +520,22 @@ export class Game {
       abilityReady: this.abilityCd <= 0 && !!this.save.equippedAbility,
       throwReady: this.throwCd <= 0 && this.run.packages > 0,
       mailGunReady: this.mailCd <= 0,
-      blockerHint: this.blockerHint || undefined,
-      gatePrompt: this.gatePrompt || undefined,
-      blockerProgress:
-        this.activeBlocker && !this.activeBlocker.cleared
-          ? Math.floor(this.activeBlocker.progress * 100)
-          : undefined,
+      jumpReady: !this.player.isJumping,
       inCombat,
       enemyHp: this.activeEnemy?.hp,
       enemyMaxHp: this.activeEnemy?.maxHp,
       enemyName: this.activeEnemy ? enemyNames[this.activeEnemy.type] : undefined,
     });
 
-    this.cb.onScanPrompt(!!(this.activeBlocker?.blocker === 'scan' && !this.activeBlocker.cleared));
     this.cb.onCombat(inCombat, this.activeEnemy?.type);
 
-    this.baseCamera.set(this.player.x * 0.35, 10, this.player.z - 12);
-    this.lookTarget.set(this.player.x * 0.25, 1.5, this.player.z + 18);
+    this.baseCamera.set(this.player.x * 0.35, 10 + this.player.jumpY * 0.15, this.player.z - 12);
+    this.lookTarget.set(this.player.x * 0.25, 1.5 + this.player.jumpY * 0.2, this.player.z + 18);
     this.shake.apply(this.camera, this.baseCamera, this.lookTarget);
   }
 
   private checkThrowHits(): void {
     for (const t of this.throws) {
-      if (this.activeBlocker && !this.activeBlocker.cleared) {
-        const b = this.activeBlocker;
-        if (b.blocker === 'ram' && (b.packageCost <= 0 || b.progress >= 0.05)) {
-          const dz = Math.abs(t.mesh.position.z - b.z);
-          const dx = Math.abs(t.mesh.position.x);
-          if (dz < 2.5 && dx < 4.5) {
-            const hit = t.damage * 0.012 * (1 + this.blockerDps * 0.15) * (1 / Math.max(4, b.required));
-            b.progress = Math.min(1, b.progress + hit);
-            this.particles.hitBurst(t.mesh.position.x, t.mesh.position.z);
-            t.life = 0;
-            if (b.progress >= 1) {
-              this.clearBlocker(b);
-              this.particles.gateBurst(0, b.z, '#FF5252');
-              this.cb.onToast('Lock broken!');
-            }
-            continue;
-          }
-        }
-      }
-
       for (const enemy of this.enemies) {
         if (enemy.defeated) continue;
         const dx = t.mesh.position.x - enemy.mesh.position.x;
@@ -770,9 +551,7 @@ export class Game {
             enemy.mesh.visible = false;
             this.run.coins += enemy.type === 'boss' ? 50 : 20;
             if (this.activeEnemy === enemy) this.activeEnemy = null;
-            this.cb.onToast(`${enemy.type === 'boss' ? 'Commander' : 'Alien'} hit! Defeated!`);
-          } else {
-            this.cb.onToast(`Direct hit! -${t.damage} HP`);
+            this.cb.onToast(`${enemy.type === 'boss' ? 'Commander' : 'Alien'} defeated!`);
           }
         }
       }
@@ -789,15 +568,16 @@ export class Game {
       const dx = Math.abs(this.player.x - obs.x);
       if (dx > obs.radius + 0.35) continue;
 
-      obs.hit = true;
-      obs.mesh.visible = false;
-
+      if (this.player.jumpY > obstacleClearHeight(obs.kind) + 0.08) continue;
       if (this.dashActive) {
+        obs.hit = true;
+        obs.mesh.visible = false;
         this.particles.hitBurst(obs.x, obs.z);
-        this.cb.onToast('Dashed through obstacle!');
         continue;
       }
 
+      obs.hit = true;
+      obs.mesh.visible = false;
       this.obstacleCooldown = 0.8;
       this.run.integrity--;
       this.run.integrityLost = true;
@@ -810,8 +590,8 @@ export class Game {
       this.particles.hitBurst(this.player.x, this.player.z);
 
       const labels: Record<string, string> = {
-        barricade: 'Hit a barricade!',
-        pod: 'Alien pod exploded!',
+        barricade: 'Hit a barricade! Jump next time!',
+        pod: 'Alien pod! Jump over it!',
         cones: 'Wiped out on cones!',
         debris: 'Crashed into debris!',
       };
@@ -824,66 +604,27 @@ export class Game {
     }
   }
 
-  private enforceRouteGateStops(): void {
+  private checkRouteGates(): void {
     for (const gate of this.routeGates) {
       if (gate.resolved) continue;
-      if (this.player.z >= gate.z - 4 && this.player.z <= gate.z + 2) {
-        if (!this.gateHintShown.has(gate.z)) {
-          this.gateHintShown.add(gate.z);
-          this.cb.onToast('Hold ← LEFT or RIGHT → · SPACE = safe center');
-        }
-        const holdLine = gate.z - 1.2;
-        if (this.player.z > holdLine) this.player.z = holdLine;
-      }
-    }
-  }
+      if (this.player.z < gate.z) continue;
 
-  private updateRouteGateCommit(dt: number): void {
-    this.gatePrompt = '';
-    for (const gate of this.routeGates) {
-      if (gate.resolved) continue;
-      if (this.player.z < gate.z - 4 || this.player.z > gate.z + 2) continue;
-
-      const hold = this.gateLaneHold.get(gate.z) ?? { left: 0, right: 0 };
-      const cx = this.player.x;
-      const onLeft = cx > 1.0;
-      const onRight = cx < -1.0;
-
-      if (onLeft && this.isSteeringLeft()) {
-        hold.left += dt;
-        hold.right = 0;
-        this.gatePrompt = `← LEFT: ${Math.min(100, Math.floor((hold.left / 0.5) * 100))}%`;
-        if (hold.left >= 0.5) this.resolveRouteGate(gate, 'left');
-      } else if (onRight && this.isSteeringRight()) {
-        hold.right += dt;
-        hold.left = 0;
-        this.gatePrompt = `RIGHT →: ${Math.min(100, Math.floor((hold.right / 0.5) * 100))}%`;
-        if (hold.right >= 0.5) this.resolveRouteGate(gate, 'right');
-      } else {
-        hold.left = Math.max(0, hold.left - dt * 2);
-        hold.right = Math.max(0, hold.right - dt * 2);
-        this.gatePrompt = 'Hold ← LEFT · SPACE = safe CENTER · Hold RIGHT →';
-      }
-      this.gateLaneHold.set(gate.z, hold);
+      if (this.player.x > 1.0) this.resolveRouteGate(gate, 'left');
+      else if (this.player.x < -1.0) this.resolveRouteGate(gate, 'right');
+      else this.resolveRouteGate(gate, 'center');
     }
   }
 
   private resolveRouteGate(gate: GateEntity, choice: 'left' | 'right' | 'center'): void {
     if (gate.resolved) return;
-
-    const finishGate = (msg: string, burstX: number, color: string) => {
-      gate.resolved = true;
-      gate.roadBarrier.visible = false;
-      this.gateLaneHold.delete(gate.z);
-      this.particles.gateBurst(burstX, gate.z, color);
-      this.cb.onToast(msg);
-      if (this.player.z < gate.z + 1.5) this.player.z = gate.z + 1.5;
-    };
+    gate.resolved = true;
+    gate.roadBarrier.visible = false;
 
     if (choice === 'center') {
       this.run.convoy = Math.min(this.run.maxConvoy, this.run.convoy + 3);
       this.convoy.setCount(this.run.convoy);
-      finishGate('Safe center route — +3 convoy', 0, '#FFD54F');
+      this.particles.gateBurst(0, gate.z, '#FFD54F');
+      this.cb.onToast('Center lane — +3 convoy');
       return;
     }
 
@@ -891,12 +632,13 @@ export class Game {
     const option = choseLeft ? gate.left : gate.right;
     const cost = option.packageCost ?? 0;
     if (cost > 0 && this.run.packages < cost) {
-      finishGate(`Need ${cost} packages! VIP damaged!`, this.player.x, '#FF5252');
+      this.particles.gateBurst(this.player.x, gate.z, '#FF5252');
       this.run.integrity--;
       this.run.integrityLost = true;
       this.player.flashHurt();
       this.shake.shake(0.6);
       this.cb.onDamageFlash();
+      this.cb.onToast(`Need ${cost} packages — VIP took damage!`);
       if (this.run.integrity <= 0) this.die('blocked');
       return;
     }
@@ -904,7 +646,8 @@ export class Game {
     if (cost > 0) this.run.packages -= cost;
     const msg = applyGateEffect(option.effect, this.run);
     this.convoy.setCount(this.run.convoy);
-    finishGate(cost > 0 ? `Paid ${cost} 📦 · ${msg}` : msg, choseLeft ? 3 : -3, choseLeft ? '#66BB6A' : '#42A5F5');
+    this.particles.gateBurst(choseLeft ? 3 : -3, gate.z, choseLeft ? '#66BB6A' : '#42A5F5');
+    this.cb.onToast(cost > 0 ? `${option.label} · ${msg}` : `${option.label} — ${msg}`);
 
     if (option.effect.spawnEnemies) this.spawnQueue.push(option.effect.spawnEnemies);
 
@@ -916,70 +659,19 @@ export class Game {
     });
   }
 
-  private checkRouteGates(): void {
-    /* Route gates resolved via updateRouteGateCommit + onSpaceAction */
-  }
-
-  private checkBlockers(_dt: number): void {
-    this.blockerHint = '';
-    let nearest: BlockerEntity | null = null;
-    let nearestDist = Infinity;
-
-    for (const b of this.blockers) {
-      if (b.cleared) continue;
-
-      if (this.player.z > b.z + 4 && b.progress < 0.95) {
-        this.player.z = b.z - 1.2;
-        if (!this.bounceWarned.has(b.z)) {
-          this.bounceWarned.add(b.z);
-          this.cb.onToast('Clear the gate first!');
-        }
-      }
-
-      if (this.player.z >= b.z - 10 && this.player.z <= b.z + 3) {
-        const dist = Math.abs(this.player.z - b.z);
-        if (dist < nearestDist) {
-          nearestDist = dist;
-          nearest = b;
-        }
-      }
-    }
-
-    this.activeBlocker = nearest;
-
-    if (!nearest) return;
-
-    const pct = Math.floor(nearest.progress * 100);
-    if (nearest.blocker === 'scan') {
-      this.blockerHint = `SPACE / SCAN to read barcode · ${pct}%`;
-    } else if (nearest.blocker === 'stamp') {
-      this.blockerHint = `SPACE — stamp or convoy vouch · ${pct}%`;
-    } else if (nearest.blocker === 'toll') {
-      this.blockerHint = `SPACE pays toll with packages · ${pct}%`;
-    } else if (nearest.blocker === 'ram') {
-      this.blockerHint = `SPACE to ram · throw/mail helps · Dash smashes · ${pct}%`;
-    }
-  }
-
-  private clearBlocker(b: BlockerEntity): void {
-    b.cleared = true;
-    b.mesh.visible = false;
-    if (this.activeBlocker === b) this.activeBlocker = null;
-  }
-
   private checkEnemies(dt: number): void {
     for (const enemy of this.enemies) {
       if (enemy.defeated) continue;
 
-      if (this.player.z >= enemy.z - 35 && !enemy.active) {
-        enemy.approach = 1;
-      }
+      if (this.player.z >= enemy.z - 35 && !enemy.active) enemy.approach = 1;
 
       if (this.player.z >= enemy.z - 12 && !enemy.active && !enemy.defeated) {
         enemy.active = true;
         this.activeEnemy = enemy;
         this.shake.shake(0.5);
-        this.cb.onToast(`${enemy.type === 'boss' ? '⚠ ALIEN COMMANDER!' : '⚠ ALIEN INTERCEPT!'} Tap 📦 throw · SPACE mail gun`);
+        this.cb.onToast(
+          `${enemy.type === 'boss' ? '⚠ COMMANDER!' : '⚠ ALIENS!'} LMB mail · RMB throw package`
+        );
         this.cb.onCombat(true, enemy.type);
       }
     }
@@ -1022,7 +714,7 @@ export class Game {
     const type = this.spawnQueue.shift()!;
     const z = this.player.z + 30;
     this.enemies.push(createEnemy(this.scene, type, type === 'pickpocket' ? 12 : 14, z));
-    this.cb.onToast('Alien ambush from the shortcut!');
+    this.cb.onToast('Ambush from the shortcut!');
   }
 
   private checkDropoff(): void {
@@ -1051,7 +743,6 @@ export class Game {
     this.shake.shake(1.2);
     this.cb.onDamageFlash();
     this.particles.burst(this.player.x, 1.5, this.player.z, '#FF1744', 30, 6);
-
     setTimeout(() => this.endGame(false), 1200);
   }
 
@@ -1102,7 +793,6 @@ export class Game {
 
   private cleanup(): void {
     for (const g of this.routeGates) disposeEntity(g.mesh, this.scene);
-    for (const b of this.blockers) disposeEntity(b.mesh, this.scene);
     for (const e of this.enemies) disposeEnemy(e, this.scene);
     disposeCoins(this.coins, this.scene);
     disposePickups(this.packagePickups, this.scene);
@@ -1111,7 +801,6 @@ export class Game {
     if (this.dropoff) disposeEntity(this.dropoff.mesh, this.scene);
     this.particles.clear();
     this.routeGates = [];
-    this.blockers = [];
     this.enemies = [];
     this.coins = [];
     this.packagePickups = [];

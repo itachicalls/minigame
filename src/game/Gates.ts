@@ -134,6 +134,7 @@ export function createRouteGate(
   beaconR.position.set(-3.2, 2.5, 0);
   group.add(beaconR);
 
+  roadBarrier.visible = false;
   scene.add(group);
 
   return {

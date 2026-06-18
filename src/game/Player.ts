@@ -8,6 +8,10 @@ export class Player {
   targetX = 0;
   hurtFlash = 0;
   runPhase = 0;
+  jumpY = 0;
+  private jumpVel = 0;
+  isJumping = false;
+  private readonly baseBodyY = 0.28;
 
   private body: THREE.Group;
   private leftLeg: THREE.Group;
@@ -197,7 +201,18 @@ export class Player {
     this.x += (this.targetX - this.x) * Math.min(1, steerSpeed * dt);
     this.x = THREE.MathUtils.clamp(this.x, -roadHalfWidth, roadHalfWidth);
     this.targetX = THREE.MathUtils.clamp(this.targetX, -roadHalfWidth, roadHalfWidth);
-    this.mesh.position.set(this.x, 0, this.z);
+
+    if (this.isJumping) {
+      this.jumpVel -= 34 * dt;
+      this.jumpY += this.jumpVel * dt;
+      if (this.jumpY <= 0) {
+        this.jumpY = 0;
+        this.jumpVel = 0;
+        this.isJumping = false;
+      }
+    }
+
+    this.mesh.position.set(this.x, this.jumpY, this.z);
 
     if (moving) {
       this.runPhase += dt * 13;
@@ -206,7 +221,12 @@ export class Player {
       this.rightLeg.rotation.x = -swing;
       this.leftArm.rotation.x = -swing * 0.5;
       this.rightArm.rotation.x = swing * 0.5;
-      this.body.position.y = 0.28 + Math.abs(Math.sin(this.runPhase * 2)) * 0.045;
+      this.body.position.y = this.baseBodyY + Math.abs(Math.sin(this.runPhase * 2)) * 0.045;
+      if (this.isJumping) {
+        this.leftLeg.rotation.x = -0.65;
+        this.rightLeg.rotation.x = -0.35;
+        this.body.position.y = this.baseBodyY + 0.15;
+      }
       this.hoverboard.rotation.z = this.x * 0.032;
       if (this.backpack) {
         this.backpack.rotation.x = Math.sin(this.runPhase) * 0.04;
@@ -240,6 +260,13 @@ export class Player {
 
   knockback(fromX: number, force = 1.2): void {
     this.targetX += this.x >= fromX ? force : -force;
+  }
+
+  jump(): boolean {
+    if (this.isJumping) return false;
+    this.isJumping = true;
+    this.jumpVel = 12;
+    return true;
   }
 
   flashHurt(): void {
