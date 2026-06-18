@@ -1,0 +1,73 @@
+import type { DistrictTheme } from '../types';
+
+export const DISTRICTS: DistrictTheme[] = [
+  {
+    id: 1,
+    name: 'Sunny Suburbs',
+    sky: '#4FC3F7',
+    skyBottom: '#81D4FA',
+    fog: '#B3E5FC',
+    ground: '#7CB342',
+    ambient: 0.85,
+    sun: 1.2,
+    fogNear: 50,
+    fogFar: 200,
+    buildingHue: 0.12,
+  },
+  {
+    id: 2,
+    name: 'Busy Downtown',
+    sky: '#FF8A65',
+    skyBottom: '#FFCC80',
+    fog: '#FFCC80',
+    ground: '#78909C',
+    ambient: 0.65,
+    sun: 0.9,
+    fogNear: 35,
+    fogFar: 160,
+    buildingHue: 0.08,
+  },
+  {
+    id: 3,
+    name: 'Industrial Rain',
+    sky: '#546E7A',
+    skyBottom: '#78909C',
+    fog: '#78909C',
+    ground: '#455A64',
+    ambient: 0.45,
+    sun: 0.5,
+    fogNear: 25,
+    fogFar: 110,
+    buildingHue: 0.55,
+  },
+  {
+    id: 4,
+    name: 'Neon Night',
+    sky: '#1A237E',
+    skyBottom: '#311B92',
+    fog: '#311B92',
+    ground: '#263238',
+    ambient: 0.35,
+    sun: 0.3,
+    fogNear: 20,
+    fogFar: 100,
+    buildingHue: 0.75,
+  },
+  {
+    id: 5,
+    name: 'The Black Zone',
+    sky: '#1B0000',
+    skyBottom: '#4A0000',
+    fog: '#4A0000',
+    ground: '#212121',
+    ambient: 0.25,
+    sun: 0.15,
+    fogNear: 15,
+    fogFar: 80,
+    buildingHue: 0.0,
+  },
+];
+
+export function getDistrict(id: number): DistrictTheme {
+  return DISTRICTS[Math.min(id - 1, DISTRICTS.length - 1)];
+}
