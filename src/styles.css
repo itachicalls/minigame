@@ -529,25 +529,43 @@ kbd {
   to { box-shadow: 0 0 18px rgba(0, 200, 83, 0.7); }
 }
 
-.gate-prompt {
+.fork-hint {
   position: absolute;
-  top: 50%;
+  top: 38%;
   left: 50%;
-  transform: translate(-50%, -20%);
-  background: rgba(255, 213, 79, 0.95);
-  color: #1a1020;
-  padding: 14px 22px;
-  border-radius: 14px;
-  font-size: 0.9rem;
+  transform: translate(-50%, -50%);
+  background: rgba(255, 23, 68, 0.92);
+  color: #fff;
+  padding: 18px 28px;
+  border-radius: 16px;
+  font-size: 1.15rem;
   font-weight: 900;
   text-align: center;
   max-width: 92vw;
+  z-index: 6;
+  pointer-events: none;
+  animation: fork-pulse 0.45s infinite alternate;
+  border: 3px solid #FFEB3B;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.45);
+}
+.fork-hint.hidden { display: none; }
+@keyframes fork-pulse {
+  from { transform: translate(-50%, -50%) scale(1); }
+  to { transform: translate(-50%, -50%) scale(1.05); }
+}
+
+.hud-hearts {
+  position: absolute;
+  top: max(12px, env(safe-area-inset-top));
+  left: 16px;
+  font-size: 1.5rem;
+  letter-spacing: 4px;
   z-index: 5;
   pointer-events: none;
-  box-shadow: 0 8px 28px rgba(0,0,0,0.35);
-  border: 2px solid rgba(255,152,0,0.6);
+  text-shadow: 0 2px 8px rgba(0,0,0,0.6);
 }
-.gate-prompt.hidden { display: none; }
+
+.hud-minimal { min-width: 120px; top: 12px; right: 12px; padding: 10px 12px; }
 
 .hud-bottom {
   position: absolute;

@@ -22,14 +22,13 @@ export type GateEntity = {
   kind: 'route';
   mesh: THREE.Group;
   z: number;
-  left: GateOption;
-  right: GateOption;
+  safeSide: 'left' | 'right';
   resolved: boolean;
   leftMesh: THREE.Group;
   rightMesh: THREE.Group;
   leftLabel: THREE.Sprite;
   rightLabel: THREE.Sprite;
-  roadBarrier: THREE.Mesh;
+  centerWall: THREE.Mesh;
   animTime: number;
 };
 
@@ -68,21 +67,37 @@ const BLOCKER_THEME: Record<BlockerKind, { accent: string; light: string; door: 
 export function createRouteGate(
   scene: THREE.Scene,
   z: number,
-  left: GateOption,
-  right: GateOption
+  safeSide: 'left' | 'right'
 ): GateEntity {
   const group = new THREE.Group();
   group.position.set(0, 0, z);
 
-  const leftGate = makeRouteBooth(3.2, left.label, left.packageCost, '#43A047', '#66BB6A');
-  const rightGate = makeRouteBooth(-3.2, right.label, right.packageCost, '#1E88E5', '#42A5F5');
+  const leftSafe = safeSide === 'left';
+  const leftLabelText = leftSafe ? '✓ SAFE PATH' : '✗ DEAD END';
+  const rightLabelText = safeSide === 'right' ? '✓ SAFE PATH' : '✗ DEAD END';
+  const leftColor = leftSafe ? '#43A047' : '#C62828';
+  const rightColor = safeSide === 'right' ? '#1E88E5' : '#C62828';
+
+  const leftGate = makeRouteBooth(3.2, leftLabelText, leftColor, leftSafe);
+  const rightGate = makeRouteBooth(-3.2, rightLabelText, rightColor, safeSide === 'right');
 
   group.add(leftGate.booth, rightGate.booth, leftGate.label, rightGate.label);
-  if (leftGate.costLabel) group.add(leftGate.costLabel);
-  if (rightGate.costLabel) group.add(rightGate.costLabel);
 
-  for (const [x, accent] of [[3.2, '#66BB6A'], [-3.2, '#42A5F5']] as const) {
+  for (const [x, accent, safe] of [
+    [3.2, leftColor, leftSafe],
+    [-3.2, rightColor, safeSide === 'right'],
+  ] as const) {
     addGatePillar(group, x, accent);
+    if (!safe) {
+      addMesh(
+        group,
+        new THREE.BoxGeometry(2.8, 3.2, 0.35),
+        mat('#B71C1C', { emissive: '#FF1744', emissiveIntensity: 0.55 }),
+        x,
+        1.6,
+        1.2
+      );
+    }
   }
 
   addMesh(
@@ -95,60 +110,72 @@ export function createRouteGate(
   );
   addMesh(group, new THREE.BoxGeometry(10.8, 0.35, 0.4), mat('#37474F', { metalness: 0.55 }), 0, 4.0, 0);
 
-  const centerSign = makeTextSprite('SAFE +3 CONVOY', '#FFD54F', 'rgba(0,60,0,0.88)');
-  centerSign.position.set(0, 3.6, 0);
-  centerSign.scale.set(2.6, 0.6, 1);
-  group.add(centerSign);
+  const forkBanner = makeTextSprite('PICK A LANE — WRONG = DEATH', '#FF1744', 'rgba(80,0,0,0.92)');
+  forkBanner.position.set(0, 4.8, 0);
+  forkBanner.scale.set(4.5, 0.9, 1);
+  group.add(forkBanner);
 
-  for (let i = 0; i < 5; i++) {
+  for (let i = 0; i < 6; i++) {
     const chev = addMesh(
       group,
       new THREE.BoxGeometry(0.5, 0.02, 0.25),
-      mat('#00E676', { emissive: '#00E676', emissiveIntensity: 0.35 }),
-      0,
+      mat(leftSafe ? '#00E676' : '#FF1744', { emissive: leftSafe ? '#00E676' : '#FF1744', emissiveIntensity: 0.45 }),
+      3.2,
       0.02,
-      1.2 - i * 0.55,
+      1.5 - i * 0.55,
       false
     );
     chev.rotation.y = Math.PI / 4;
+    const chevR = addMesh(
+      group,
+      new THREE.BoxGeometry(0.5, 0.02, 0.25),
+      mat(safeSide === 'right' ? '#00E676' : '#FF1744', { emissive: safeSide === 'right' ? '#00E676' : '#FF1744', emissiveIntensity: 0.45 }),
+      -3.2,
+      0.02,
+      1.5 - i * 0.55,
+      false
+    );
+    chevR.rotation.y = -Math.PI / 4;
   }
 
-  // Road closure — pick LEFT, CENTER, or RIGHT lane to pass
-  const roadBarrier = addMesh(
+  const centerWall = addMesh(
     group,
-    new THREE.BoxGeometry(8.6, 2.6, 0.4),
-    mat('#455A64', { emissive: '#FFEB3B', emissiveIntensity: 0.25, metalness: 0.35 }),
+    new THREE.BoxGeometry(2.4, 3.4, 0.55),
+    mat('#37474F', { emissive: '#FFEB3B', emissiveIntensity: 0.45, metalness: 0.35 }),
     0,
-    1.35,
-    0
+    1.7,
+    0.2
   );
-  addMesh(group, new THREE.BoxGeometry(8.8, 0.12, 0.42), mat('#FFEB3B', { emissive: '#FFC107', emissiveIntensity: 0.55 }), 0, 2.72, 0);
-  for (const [x, c] of [[3.2, '#66BB6A'], [-3.2, '#42A5F5'], [0, '#FFD54F']] as const) {
-    addMesh(group, new THREE.BoxGeometry(0.12, 2.4, 0.08), mat(c, { emissive: c, emissiveIntensity: 0.5 }), x, 1.25, 0.22);
-  }
+  addMesh(group, new THREE.BoxGeometry(2.6, 0.14, 0.58), mat('#FFEB3B', { emissive: '#FFC107', emissiveIntensity: 0.75 }), 0, 3.45, 0.2);
+  addMesh(
+    group,
+    new THREE.BoxGeometry(0.14, 3.2, 0.12),
+    mat('#FF1744', { emissive: '#FF1744', emissiveIntensity: 0.8 }),
+    0,
+    1.6,
+    0.5
+  );
 
-  const beaconL = new THREE.PointLight(0x66bb6a, 1.0, 10);
+  const beaconL = new THREE.PointLight(leftSafe ? 0x66bb6a : 0xff1744, 1.2, 12);
   beaconL.position.set(3.2, 2.5, 0);
   group.add(beaconL);
-  const beaconR = new THREE.PointLight(0x42a5f5, 1.0, 10);
+  const beaconR = new THREE.PointLight(safeSide === 'right' ? 0x42a5f5 : 0xff1744, 1.2, 12);
   beaconR.position.set(-3.2, 2.5, 0);
   group.add(beaconR);
 
-  roadBarrier.visible = false;
   scene.add(group);
 
   return {
     kind: 'route',
     mesh: group,
     z,
-    left,
-    right,
+    safeSide,
     resolved: false,
     leftMesh: leftGate.booth,
     rightMesh: rightGate.booth,
     leftLabel: leftGate.label,
     rightLabel: rightGate.label,
-    roadBarrier,
+    centerWall,
     animTime: 0,
   };
 }
@@ -322,39 +349,39 @@ export function createDropoff(scene: THREE.Scene, z: number): DropoffEntity {
   return { kind: 'dropoff', mesh: group, z, reached: false, platform };
 }
 
-function makeRouteBooth(x: number, label: string, packageCost: number | undefined, color: string, _light: string) {
+function makeRouteBooth(x: number, label: string, color: string, safe: boolean) {
   const booth = new THREE.Group();
   booth.position.set(x, 0, 0);
 
   addMesh(booth, new THREE.BoxGeometry(2.4, 2.8, 1.1), mat('#37474F', { metalness: 0.4, roughness: 0.5 }), 0, 1.4, 0);
-  addMesh(booth, new THREE.BoxGeometry(2.5, 0.15, 1.2), mat(color, { emissive: color, emissiveIntensity: 0.35 }), 0, 2.85, 0);
+  addMesh(booth, new THREE.BoxGeometry(2.5, 0.15, 1.2), mat(color, { emissive: color, emissiveIntensity: safe ? 0.5 : 0.35 }), 0, 2.85, 0);
   addMesh(
     booth,
     new THREE.BoxGeometry(1.8, 1.2, 0.06),
-    mat(color, { emissive: color, emissiveIntensity: 0.55 }),
+    mat(color, { emissive: color, emissiveIntensity: safe ? 0.65 : 0.4 }),
     0,
     1.7,
     0.58
   );
 
-  const arm = addMesh(booth, new THREE.BoxGeometry(1.6, 0.1, 0.1), mat('#FFD54F', { emissive: '#FFC107', emissiveIntensity: 0.4 }), 0, 2.2, 0.9);
+  const arm = addMesh(booth, new THREE.BoxGeometry(1.6, 0.1, 0.1), mat(safe ? '#FFD54F' : '#FF1744', { emissive: safe ? '#FFC107' : '#FF1744', emissiveIntensity: 0.5 }), 0, 2.2, 0.9);
   arm.rotation.y = x > 0 ? -0.55 : 0.55;
-  addMesh(arm, new THREE.SphereGeometry(0.12, 10, 10), mat('#FF1744', { emissive: '#FF1744', emissiveIntensity: 0.7 }), x > 0 ? -0.75 : 0.75, 0, 0);
+  addMesh(
+    arm,
+    new THREE.SphereGeometry(0.12, 10, 10),
+    mat(safe ? '#00E676' : '#FF1744', { emissive: safe ? '#00E676' : '#FF1744', emissiveIntensity: 0.85 }),
+    x > 0 ? -0.75 : 0.75,
+    0,
+    0
+  );
 
   addMesh(booth, new THREE.BoxGeometry(2.6, 0.08, 1.3), mat('#263238'), 0, 0.04, 0);
 
-  const sprite = makeTextSprite(label, '#fff', 'rgba(0,0,0,0.78)');
+  const sprite = makeTextSprite(label, '#fff', safe ? 'rgba(0,80,30,0.9)' : 'rgba(100,0,0,0.92)');
   sprite.position.set(x, 3.85, 0);
   sprite.scale.set(4.2, 1, 1);
 
-  let costLabel: THREE.Sprite | null = null;
-  if (packageCost) {
-    costLabel = makeTextSprite(`📦 ×${packageCost}`, '#FFD54F', 'rgba(60,30,0,0.88)');
-    costLabel.position.set(x, 3.15, 0);
-    costLabel.scale.set(2.6, 0.65, 1);
-  }
-
-  return { booth, label: sprite, costLabel };
+  return { booth, label: sprite };
 }
 
 function makeTextSprite(text: string, textColor: string, bg: string): THREE.Sprite {
@@ -387,13 +414,13 @@ export function animateGate(gate: GateEntity, time: number): void {
   gate.leftLabel.position.y = 3.85 + Math.sin(time * 3) * 0.06;
   gate.rightLabel.position.y = 3.85 + Math.sin(time * 3 + 1) * 0.06;
 
-  if (gate.resolved) {
-    gate.roadBarrier.visible = false;
+  if (!gate.resolved) {
+    gate.centerWall.visible = true;
+    gate.centerWall.position.y = 1.7 + Math.sin(time * 5) * 0.04;
+    (gate.centerWall.material as THREE.MeshStandardMaterial).emissiveIntensity =
+      0.35 + Math.sin(time * 6) * 0.2;
   } else {
-    gate.roadBarrier.visible = true;
-    gate.roadBarrier.position.y = 1.35 + Math.sin(time * 5) * 0.03;
-    (gate.roadBarrier.material as THREE.MeshStandardMaterial).emissiveIntensity =
-      0.2 + Math.sin(time * 6) * 0.15;
+    gate.centerWall.visible = false;
   }
 }
 

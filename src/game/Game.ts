@@ -5,7 +5,6 @@ import { Convoy } from './Convoy';
 import {
   createRouteGate,
   createDropoff,
-  applyGateEffect,
   disposeEntity,
   animateGate,
   animateDropoff,
@@ -54,13 +53,9 @@ export type GameCallbacks = {
 };
 
 export type HudData = {
-  convoy: number;
-  packages: number;
-  maxPackages: number;
   integrity: number;
   maxIntegrity: number;
   coins: number;
-  stamps: number;
   distance: number;
   totalDistance: number;
   timeLeft: number;
@@ -69,6 +64,7 @@ export type HudData = {
   throwReady: boolean;
   mailGunReady: boolean;
   jumpReady: boolean;
+  forkHint?: string;
   inCombat: boolean;
   enemyHp?: number;
   enemyMaxHp?: number;
@@ -123,12 +119,12 @@ export class Game {
   private mailGunRate = 0.28;
   private combatTurretDps = 0;
   private regenTimer = 0;
-  private spawnQueue: EnemyType[] = [];
   private startConvoy = 5;
   private startPackages = 3;
   private coinRadius = 2;
   private packageRadius = 2.2;
   private beaconRegen = 0;
+  private forkHint = '';
   private deathReason: DeathReason = 'stolen';
 
   private cb: GameCallbacks;
@@ -220,7 +216,7 @@ export class Game {
     this.dead = false;
     this.elapsed = 0;
     this.gameTime = 0;
-    this.spawnQueue = [];
+    this.forkHint = '';
     this.activeEnemy = null;
     this.throws = [];
     this.smokeTimer = 0;
@@ -241,8 +237,8 @@ export class Game {
       maxPackages: 25 + (this.save.purchases['convoy-cap'] ?? 0) * 3,
       integrity: 3 + (this.save.purchases['package-armor'] ?? 0),
       maxIntegrity: 3 + (this.save.purchases['package-armor'] ?? 0),
-      baseSpeed: 11,
-      speed: 11,
+      baseSpeed: 13,
+      speed: 13,
     };
 
     this.coinRadius = 2 + (this.save.purchases['coin-magnet'] ?? 0) * 0.6;
@@ -279,7 +275,7 @@ export class Game {
     for (const seg of level.segments) {
       switch (seg.kind) {
         case 'gate':
-          this.routeGates.push(createRouteGate(this.scene, seg.z, seg.left, seg.right));
+          this.routeGates.push(createRouteGate(this.scene, seg.z, seg.safe));
           break;
         case 'enemy':
           this.enemies.push(createEnemy(this.scene, seg.enemy, seg.count, seg.z));
@@ -480,7 +476,6 @@ export class Game {
     this.checkObstacles();
     this.checkRouteGates();
     this.checkEnemies(dt);
-    this.processSpawnQueue();
     this.checkDropoff();
     this.checkLose();
 
@@ -506,13 +501,9 @@ export class Game {
     };
 
     this.cb.onHudUpdate({
-      convoy: this.run.convoy,
-      packages: this.run.packages,
-      maxPackages: this.run.maxPackages,
       integrity: this.run.integrity,
       maxIntegrity: this.run.maxIntegrity,
       coins: this.run.coins,
-      stamps: this.run.stamps,
       distance: this.run.distance,
       totalDistance: this.levelLength,
       timeLeft,
@@ -521,6 +512,7 @@ export class Game {
       throwReady: this.throwCd <= 0 && this.run.packages > 0,
       mailGunReady: this.mailCd <= 0,
       jumpReady: !this.player.isJumping,
+      forkHint: this.forkHint || undefined,
       inCombat,
       enemyHp: this.activeEnemy?.hp,
       enemyMaxHp: this.activeEnemy?.maxHp,
@@ -551,7 +543,6 @@ export class Game {
             enemy.mesh.visible = false;
             this.run.coins += enemy.type === 'boss' ? 50 : 20;
             if (this.activeEnemy === enemy) this.activeEnemy = null;
-            this.cb.onToast(`${enemy.type === 'boss' ? 'Commander' : 'Alien'} defeated!`);
           }
         }
       }
@@ -590,12 +581,12 @@ export class Game {
       this.particles.hitBurst(this.player.x, this.player.z);
 
       const labels: Record<string, string> = {
-        barricade: 'Hit a barricade! Jump next time!',
-        pod: 'Alien pod! Jump over it!',
-        cones: 'Wiped out on cones!',
-        debris: 'Crashed into debris!',
+        barricade: 'Crunch!',
+        pod: 'Splat!',
+        cones: 'Wipeout!',
+        debris: 'Crash!',
       };
-      this.cb.onToast(labels[obs.kind] ?? 'Obstacle hit!');
+      this.cb.onToast(labels[obs.kind] ?? 'Ouch!');
 
       if (this.run.integrity <= 0) {
         this.die('stolen');
@@ -605,58 +596,45 @@ export class Game {
   }
 
   private checkRouteGates(): void {
+    this.forkHint = '';
+
     for (const gate of this.routeGates) {
       if (gate.resolved) continue;
-      if (this.player.z < gate.z) continue;
 
-      if (this.player.x > 1.0) this.resolveRouteGate(gate, 'left');
-      else if (this.player.x < -1.0) this.resolveRouteGate(gate, 'right');
-      else this.resolveRouteGate(gate, 'center');
-    }
-  }
-
-  private resolveRouteGate(gate: GateEntity, choice: 'left' | 'right' | 'center'): void {
-    if (gate.resolved) return;
-    gate.resolved = true;
-    gate.roadBarrier.visible = false;
-
-    if (choice === 'center') {
-      this.run.convoy = Math.min(this.run.maxConvoy, this.run.convoy + 3);
-      this.convoy.setCount(this.run.convoy);
-      this.particles.gateBurst(0, gate.z, '#FFD54F');
-      this.cb.onToast('Center lane — +3 convoy');
-      return;
-    }
-
-    const choseLeft = choice === 'left';
-    const option = choseLeft ? gate.left : gate.right;
-    const cost = option.packageCost ?? 0;
-    if (cost > 0 && this.run.packages < cost) {
-      this.particles.gateBurst(this.player.x, gate.z, '#FF5252');
-      this.run.integrity--;
-      this.run.integrityLost = true;
-      this.player.flashHurt();
-      this.shake.shake(0.6);
-      this.cb.onDamageFlash();
-      this.cb.onToast(`Need ${cost} packages — VIP took damage!`);
-      if (this.run.integrity <= 0) this.die('blocked');
-      return;
-    }
-
-    if (cost > 0) this.run.packages -= cost;
-    const msg = applyGateEffect(option.effect, this.run);
-    this.convoy.setCount(this.run.convoy);
-    this.particles.gateBurst(choseLeft ? 3 : -3, gate.z, choseLeft ? '#66BB6A' : '#42A5F5');
-    this.cb.onToast(cost > 0 ? `${option.label} · ${msg}` : `${option.label} — ${msg}`);
-
-    if (option.effect.spawnEnemies) this.spawnQueue.push(option.effect.spawnEnemies);
-
-    const chosen = choseLeft ? gate.leftMesh : gate.rightMesh;
-    chosen.traverse((c) => {
-      if (c instanceof THREE.Mesh && c.material instanceof THREE.MeshStandardMaterial) {
-        c.material.emissiveIntensity = 0.8;
+      const dist = gate.z - this.player.z;
+      if (dist > 0 && dist < 28) {
+        this.forkHint =
+          gate.safeSide === 'left' ? '⬅ SWERVE LEFT — RIGHT KILLS YOU!' : 'SWERVE RIGHT ➡ — LEFT KILLS YOU!';
       }
-    });
+
+      if (this.player.z >= gate.z - 3 && this.player.z <= gate.z + 2) {
+        if (Math.abs(this.player.x) < 1.2) {
+          this.die('wrong_turn');
+          return;
+        }
+      }
+
+      if (this.player.z < gate.z + 0.4) continue;
+
+      const onLeft = this.player.x > 0.75;
+      const onRight = this.player.x < -0.75;
+      if (!onLeft && !onRight) {
+        this.die('wrong_turn');
+        return;
+      }
+
+      const choice = onLeft ? 'left' : 'right';
+      gate.resolved = true;
+      gate.centerWall.visible = false;
+
+      if (choice !== gate.safeSide) {
+        this.die('wrong_turn');
+        return;
+      }
+
+      this.run.coins += 8;
+      this.particles.gateBurst(choice === 'left' ? 3 : -3, gate.z, '#00E676');
+    }
   }
 
   private checkEnemies(dt: number): void {
@@ -669,9 +647,7 @@ export class Game {
         enemy.active = true;
         this.activeEnemy = enemy;
         this.shake.shake(0.5);
-        this.cb.onToast(
-          `${enemy.type === 'boss' ? '⚠ COMMANDER!' : '⚠ ALIENS!'} LMB mail · RMB throw package`
-        );
+        this.cb.onToast(enemy.type === 'boss' ? '⚠ COMMANDER!' : '⚠ ALIENS!');
         this.cb.onCombat(true, enemy.type);
       }
     }
@@ -690,7 +666,7 @@ export class Game {
         this.cb.onDamageFlash();
         this.shake.shake(0.8);
         this.particles.hitBurst(this.player.x, this.player.z + 5);
-        this.cb.onToast('Convoy wiped! VIP exposed!');
+        this.cb.onToast('Convoy wiped!');
         if (this.run.integrity <= 0) {
           this.die('overwhelmed');
           return;
@@ -707,14 +683,6 @@ export class Game {
         this.cb.onCombat(false);
       }
     }
-  }
-
-  private processSpawnQueue(): void {
-    if (this.spawnQueue.length === 0) return;
-    const type = this.spawnQueue.shift()!;
-    const z = this.player.z + 30;
-    this.enemies.push(createEnemy(this.scene, type, type === 'pickpocket' ? 12 : 14, z));
-    this.cb.onToast('Ambush from the shortcut!');
   }
 
   private checkDropoff(): void {
@@ -766,6 +734,7 @@ export class Game {
       overwhelmed: 'Your convoy was overwhelmed!',
       timeout: 'Delivery window expired!',
       blocked: 'You could not pay the toll!',
+      wrong_turn: 'Wrong turn at the fork — dead end!',
     };
 
     this.cb.onEnd({

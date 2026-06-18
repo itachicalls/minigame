@@ -16,7 +16,7 @@ export type BlockerKind = 'scan' | 'stamp' | 'ram' | 'toll';
 export type ObstacleKind = 'barricade' | 'pod' | 'cones' | 'debris';
 
 export type SegmentType =
-  | { kind: 'gate'; z: number; left: GateOption; right: GateOption }
+  | { kind: 'gate'; z: number; safe: 'left' | 'right' }
   | { kind: 'blocker'; z: number; blocker: BlockerKind; required?: number; label: string; packageCost?: number }
   | { kind: 'enemy'; z: number; enemy: EnemyType; count: number }
   | { kind: 'coins'; z: number; count: number; spread?: number }
@@ -127,4 +127,4 @@ export const INITIAL_RUN: RunState = {
   bonusRoute: false,
 };
 
-export type DeathReason = 'stolen' | 'overwhelmed' | 'timeout' | 'blocked';
+export type DeathReason = 'stolen' | 'overwhelmed' | 'timeout' | 'blocked' | 'wrong_turn';

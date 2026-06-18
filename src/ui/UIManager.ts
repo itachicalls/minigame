@@ -133,7 +133,7 @@ export class UIManager {
           <div class="control-item"><kbd>SPACE</kbd> Jump obstacles</div>
           <div class="control-item"><span class="tap-icon">👆</span> Left click / left tap = mail gun</div>
           <div class="control-item"><span class="tap-icon">👆</span> Right click / right tap = throw 📦</div>
-          <div class="control-item">Forks: swerve left, center, or right — no stopping!</div>
+          <div class="control-item">Forks: green ✓ SAFE lane only — wrong lane kills you!</div>
           <div class="control-item">⚡ Ability · Convoy auto-fights aliens</div>
         </div>
         <button class="btn btn-primary btn-glow" id="btn-start">🚀 Start Delivery</button>
@@ -245,42 +245,19 @@ export class UIManager {
           <span class="steer-arrow">▶</span>
         </div>
 
-        <div class="hud-package-badge" id="package-badge">
-          <span class="pkg-badge-icon">📦</span>
-          <span class="pkg-badge-count" id="pkg-badge-count">0</span>
-        </div>
+        <div class="hud-hearts" id="hud-hearts"></div>
 
-        <div class="hud-panel hud-left">
-          <div class="hud-row">
-            <div class="hud-label">📦 Packages</div>
-            <div class="hud-value hud-value-lg" id="hud-packages">0</div>
-            <div class="bar-wrap wide"><div class="bar-fill package-bar" id="bar-packages"></div></div>
-          </div>
-          <div class="hud-row">
-            <div class="hud-label">👥 Convoy <span class="hud-hint">(fights aliens)</span></div>
-            <div class="hud-value" id="hud-convoy">0</div>
-            <div class="bar-wrap wide"><div class="bar-fill convoy-bar" id="bar-convoy"></div></div>
-          </div>
-          <div class="hud-row">
-            <div class="hud-label">❤ VIP Integrity</div>
-            <div class="hud-value" id="hud-integrity">3</div>
-            <div class="bar-wrap wide"><div class="bar-fill integrity-bar" id="bar-integrity"></div></div>
-          </div>
-        </div>
-
-        <div class="hud-panel hud-right">
+        <div class="hud-panel hud-right hud-minimal">
           <div class="hud-stat-inline">🪙 <span id="hud-coins">0</span></div>
-          <div class="hud-stat-inline">📋 <span id="hud-stamps">0</span></div>
-          <div class="hud-stat-inline">⏱ <span id="hud-time">0</span>s</div>
           <div class="progress-track">
             <div class="progress-fill" id="progress-fill"></div>
           </div>
           <div class="progress-label" id="hud-dist">0m</div>
         </div>
 
-        <div class="gate-prompt hidden" id="gate-prompt"></div>
+        <div class="fork-hint hidden" id="fork-hint"></div>
 
-        <div class="tap-hint" id="tap-hint">LMB mail · RMB throw · SPACE jump</div>
+        <div class="tap-hint" id="tap-hint">Jump · Shoot · Swerve at forks!</div>
 
         <div class="combat-banner hidden" id="combat-banner">
           <div class="combat-title" id="combat-title">⚠ INTERCEPT!</div>
@@ -373,46 +350,36 @@ export class UIManager {
   }
 
   private updateHud(d: HudData): void {
+    const heartsEl = document.getElementById('hud-hearts');
+    if (heartsEl) {
+      heartsEl.textContent = '❤'.repeat(d.integrity) + '🖤'.repeat(Math.max(0, d.maxIntegrity - d.integrity));
+    }
+
     const set = (id: string, v: string) => {
       const el = document.getElementById(id);
       if (el) el.textContent = v;
     };
-    set('hud-packages', `${d.packages}/${d.maxPackages}`);
-    const badge = document.getElementById('pkg-badge-count');
-    if (badge) badge.textContent = String(d.packages);
-    const badgeEl = document.getElementById('package-badge');
-    if (badgeEl) badgeEl.classList.toggle('low', d.packages <= 2);
-    set('hud-convoy', String(d.convoy));
-    set('hud-integrity', `${d.integrity}/${d.maxIntegrity}`);
-    set('hud-stamps', String(d.stamps));
     set('hud-coins', String(d.coins));
-    set('hud-time', Math.ceil(d.timeLeft).toString());
-    set('hud-dist', `${Math.floor(d.distance)}/${Math.floor(d.totalDistance)}m`);
-
-    const pkgBar = document.getElementById('bar-packages');
-    if (pkgBar) pkgBar.style.width = `${(d.packages / d.maxPackages) * 100}%`;
-    const convoyBar = document.getElementById('bar-convoy');
-    if (convoyBar) convoyBar.style.width = `${Math.min(100, (d.convoy / 50) * 100)}%`;
-    const intBar = document.getElementById('bar-integrity');
-    if (intBar) {
-      intBar.style.width = `${(d.integrity / d.maxIntegrity) * 100}%`;
-      intBar.classList.toggle('danger', d.integrity <= 1);
-    }
+    set('hud-dist', `${Math.floor(d.distance)}m`);
 
     const prog = document.getElementById('progress-fill');
-    if (prog) prog.style.width = `${(d.distance / d.totalDistance) * 100}%`;
+    if (prog) prog.style.width = `${Math.min(100, (d.distance / d.totalDistance) * 100)}%`;
+
+    const forkHint = document.getElementById('fork-hint');
+    if (forkHint) {
+      if (d.forkHint) {
+        forkHint.textContent = d.forkHint;
+        forkHint.classList.remove('hidden');
+      } else {
+        forkHint.classList.add('hidden');
+      }
+    }
 
     if (d.inCombat && d.enemyHp !== undefined && d.enemyMaxHp) {
       set('combat-title', `⚠ ${d.enemyName ?? 'ENEMY'}`);
       const cb = document.getElementById('combat-bar');
       if (cb) cb.style.width = `${(d.enemyHp / d.enemyMaxHp) * 100}%`;
     }
-
-    const blockerHint = document.getElementById('blocker-hint');
-    if (blockerHint) blockerHint.classList.add('hidden');
-
-    const gatePrompt = document.getElementById('gate-prompt');
-    if (gatePrompt) gatePrompt.classList.add('hidden');
 
     const mailCd = document.getElementById('mail-cd');
     const mailBtn = document.getElementById('mail-btn');
