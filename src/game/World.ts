@@ -1,14 +1,16 @@
 import * as THREE from 'three';
 import type { DistrictTheme } from '../types';
 import { addMesh, mat, disposeObject3D } from './ModelUtils';
-import { IS_MOBILE } from './platform';
+import { IS_MOBILE, WORLD_AHEAD, WORLD_BEHIND, freezeStatic } from './platform';
 
 type AnimProp = {
   obj: THREE.Object3D;
+  worldZ: number;
   kind: 'bob' | 'spin' | 'flicker' | 'cloud';
   speed: number;
   baseY: number;
   phase: number;
+  light?: THREE.PointLight;
 };
 
 export class World {
@@ -17,6 +19,8 @@ export class World {
   private animProps: AnimProp[] = [];
   private roadTexture!: THREE.CanvasTexture;
   private skyTexture: THREE.CanvasTexture | null = null;
+  private playerZ = 0;
+  private cullTimer = 0;
 
   constructor(scene: THREE.Scene) {
     this.scene = scene;
@@ -26,7 +30,7 @@ export class World {
     this.clear();
 
     this.buildSky(theme);
-    this.scene.fog = new THREE.FogExp2(theme.fog, theme.id <= 2 ? 0.008 : 0.012);
+    this.scene.fog = new THREE.FogExp2(theme.fog, IS_MOBILE ? 0.016 : theme.id <= 2 ? 0.008 : 0.012);
 
     // Grass field
     const grass = addMesh(
@@ -40,7 +44,8 @@ export class World {
     );
     grass.rotation.x = -Math.PI / 2;
     grass.position.y = -0.02;
-    grass.receiveShadow = true;
+    grass.receiveShadow = !IS_MOBILE;
+    grass.userData.isTerrain = true;
     this.rootMeshes.push(grass);
 
     // Sidewalks
@@ -56,7 +61,8 @@ export class World {
       );
       walk.rotation.x = -Math.PI / 2;
       walk.position.y = 0.015;
-      walk.receiveShadow = true;
+      walk.receiveShadow = !IS_MOBILE;
+      walk.userData.isTerrain = true;
       this.rootMeshes.push(walk);
     }
 
@@ -75,31 +81,34 @@ export class World {
     );
     road.rotation.x = -Math.PI / 2;
     road.position.y = 0.025;
-    road.receiveShadow = true;
+    road.receiveShadow = !IS_MOBILE;
+    road.userData.isTerrain = true;
     this.rootMeshes.push(road);
 
     // Curbs with emissive edge
     for (const x of [-3.4, 3.4]) {
-      const curb = addMesh(this.scene, new THREE.BoxGeometry(0.35, 0.18, levelLength + 140), mat('#ECEFF1'), x, 0.09, levelLength / 2);
+      const curb = addMesh(this.scene, new THREE.BoxGeometry(0.35, 0.18, levelLength + 140), mat('#ECEFF1'), x, 0.09, levelLength / 2, false);
       addMesh(curb, new THREE.BoxGeometry(0.08, 0.2, levelLength + 140), mat('#FFD54F', { emissive: '#FFC107', emissiveIntensity: 0.2 }), x > 0 ? -0.16 : 0.16, 0, 0, false);
+      curb.userData.isTerrain = true;
       this.rootMeshes.push(curb);
     }
 
     const rng = seededRandom(theme.id * 1337 + levelLength);
 
     // Clouds
-    const cloudCount = IS_MOBILE ? 7 : 14;
+    const cloudCount = IS_MOBILE ? 5 : 14;
     for (let i = 0; i < cloudCount; i++) {
       const cloud = this.makeCloud(rng);
-      cloud.position.set((rng() - 0.5) * 40, 18 + rng() * 14, rng() * (levelLength + 60));
+      const cz = rng() * (levelLength + 60);
+      cloud.position.set((rng() - 0.5) * 40, 18 + rng() * 14, cz);
       this.scene.add(cloud);
       this.rootMeshes.push(cloud);
-      this.animProps.push({ obj: cloud, kind: 'cloud', speed: 0.15 + rng() * 0.2, baseY: cloud.position.y, phase: rng() * 10 });
+      this.animProps.push({ obj: cloud, worldZ: cz, kind: 'cloud', speed: 0.15 + rng() * 0.2, baseY: cloud.position.y, phase: rng() * 10 });
     }
 
     // Buildings, props, alien crash sites
-    const propStep = IS_MOBILE ? 12 : 8;
-    const propJitter = IS_MOBILE ? 6 : 8;
+    const propStep = IS_MOBILE ? 16 : 8;
+    const propJitter = IS_MOBILE ? 8 : 8;
     for (let z = 0; z < levelLength + 50; z += propStep + Math.floor(rng() * propJitter)) {
       for (const side of [-1, 1]) {
         const roll = rng();
@@ -107,30 +116,43 @@ export class World {
           const building = this.makeBuilding(theme, rng);
           building.position.set(side * (8 + rng() * 5), 0, z + rng() * 5);
           building.rotation.y = side * 0.08;
+          freezeStatic(building);
           this.scene.add(building);
           this.rootMeshes.push(building);
         }
-        if (roll > 0.55 && theme.id <= 2) {
+        if (roll > 0.55 && theme.id <= 2 && !IS_MOBILE) {
           const tree = this.makeTree(rng);
           tree.position.set(side * (10 + rng() * 3), 0, z + rng() * 4);
+          freezeStatic(tree);
           this.scene.add(tree);
           this.rootMeshes.push(tree);
         }
         if (rng() > 0.72) {
           const prop = rng() > 0.5 ? this.makeStreetLamp() : this.makeMailbox();
-          prop.position.set(side * (6.2 + rng()), 0, z + rng() * 3);
+          const pz = z + rng() * 3;
+          prop.position.set(side * (6.2 + rng()), 0, pz);
+          freezeStatic(prop);
           this.scene.add(prop);
           this.rootMeshes.push(prop);
           if (prop.userData.flicker) {
-            this.animProps.push({ obj: prop, kind: 'flicker', speed: 4 + rng() * 3, baseY: 0, phase: rng() * 6 });
+            this.animProps.push({
+              obj: prop,
+              worldZ: pz,
+              kind: 'flicker',
+              speed: 4 + rng() * 3,
+              baseY: 0,
+              phase: rng() * 6,
+              light: prop.userData.flickerLight as THREE.PointLight | undefined,
+            });
           }
         }
-        if (rng() > 0.88) {
+        if (!IS_MOBILE && rng() > 0.88) {
           const crash = this.makeAlienCrash();
           crash.position.set(side * (7 + rng() * 2), 0, z);
+          freezeStatic(crash);
           this.scene.add(crash);
           this.rootMeshes.push(crash);
-          this.animProps.push({ obj: crash.children[1] as THREE.Mesh, kind: 'bob', speed: 2, baseY: 0.12, phase: rng() * 5 });
+          this.animProps.push({ obj: crash.children[1] as THREE.Mesh, worldZ: z, kind: 'bob', speed: 2, baseY: 0.12, phase: rng() * 5 });
         }
       }
     }
@@ -250,6 +272,7 @@ export class World {
       const light = new THREE.PointLight(0xFFD54F, 0.6, 12);
       light.position.set(0, 3.6, 0);
       g.add(light);
+      g.userData.flickerLight = light;
     }
     return g;
   }
@@ -322,6 +345,7 @@ export class World {
     }
     sun.name = 'sun';
     this.scene.add(sun);
+    this.scene.add(sun.target);
 
     if (theme.id >= 4 && !IS_MOBILE) {
       const neon = new THREE.PointLight(0xff00ff, 2.5, 55);
@@ -331,11 +355,37 @@ export class World {
     }
   }
 
-  update(time: number): void {
+  setPlayerZ(z: number, dt: number): void {
+    this.playerZ = z;
+    this.cullTimer += dt;
+    if (this.cullTimer < (IS_MOBILE ? 0.12 : 0.08)) return;
+    this.cullTimer = 0;
+
+    const minZ = z - WORLD_BEHIND;
+    const maxZ = z + WORLD_AHEAD;
+    for (const m of this.rootMeshes) {
+      if (m.userData.isTerrain) continue;
+      const mz = m.position.z;
+      m.visible = mz >= minZ && mz <= maxZ;
+    }
+  }
+
+  /** Move shadow sun with the player so the shadow frustum stays tight on desktop */
+  followSun(playerX: number, playerZ: number): void {
+    const sun = this.scene.getObjectByName('sun') as THREE.DirectionalLight | undefined;
+    if (!sun || !sun.castShadow) return;
+    sun.position.set(playerX + 18, 42, playerZ - 22);
+    sun.target.position.set(playerX, 0, playerZ + 35);
+    sun.target.updateMatrixWorld();
+  }
+
+  update(time: number, playerZ = this.playerZ): void {
     if (this.roadTexture) {
       this.roadTexture.offset.y = -time * 0.15;
     }
+    const animRange = IS_MOBILE ? 45 : 65;
     for (const p of this.animProps) {
+      if (Math.abs(p.worldZ - playerZ) > animRange) continue;
       switch (p.kind) {
         case 'bob':
           p.obj.position.y = p.baseY + Math.sin(time * p.speed + p.phase) * 0.06;
@@ -348,9 +398,7 @@ export class World {
           p.obj.position.y = p.baseY + Math.sin(time * p.speed + p.phase) * 0.4;
           break;
         case 'flicker':
-          p.obj.traverse((c) => {
-            if (c instanceof THREE.PointLight) c.intensity = 0.45 + Math.sin(time * p.speed + p.phase) * 0.25;
-          });
+          if (p.light) p.light.intensity = 0.45 + Math.sin(time * p.speed + p.phase) * 0.25;
           break;
       }
     }

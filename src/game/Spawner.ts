@@ -12,11 +12,13 @@ export function pickRandomLane(): number {
 /** Pick 1-2 lanes; bias toward blocking center sometimes */
 export function pickObstacleLanes(): number[] {
   const count = Math.random() < 0.35 ? 2 : 1;
-  const pool = [...LANES];
   const picked: number[] = [];
-  for (let i = 0; i < count; i++) {
-    const idx = Math.floor(Math.random() * pool.length);
-    picked.push(pool.splice(idx, 1)[0]);
+  const used = new Set<number>();
+  while (picked.length < count) {
+    const lane = LANES[Math.floor(Math.random() * LANES.length)];
+    if (used.has(lane)) continue;
+    used.add(lane);
+    picked.push(lane);
   }
   if (Math.random() < 0.4 && !picked.includes(0)) {
     picked[0] = 0;

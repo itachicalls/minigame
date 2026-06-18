@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { IS_MOBILE } from './platform';
 
 export function mat(color: string, opts: Partial<THREE.MeshStandardMaterialParameters> = {}): THREE.MeshStandardMaterial {
   return new THREE.MeshStandardMaterial({ color, roughness: 0.65, ...opts });
@@ -11,12 +12,12 @@ export function addMesh(
   x = 0,
   y = 0,
   z = 0,
-  castShadow = true
+  castShadow = !IS_MOBILE
 ): THREE.Mesh {
   const m = new THREE.Mesh(geo, material);
   m.position.set(x, y, z);
   m.castShadow = castShadow;
-  m.receiveShadow = true;
+  m.receiveShadow = !IS_MOBILE;
   parent.add(m);
   return m;
 }

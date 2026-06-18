@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { addMesh, disposeObject3D } from './ModelUtils';
 import { buildAlien, animateAlienRig } from './AlienModels';
-import { IS_MOBILE } from './platform';
+import { IS_MOBILE, isNearZ } from './platform';
 
 export type RunnerTier = 'grunt' | 'raider' | 'stalker';
 
@@ -42,9 +42,10 @@ export function createRunner(scene: THREE.Scene, tier: RunnerTier, x: number, z:
   alien.rotation.y = Math.PI;
   group.add(alien);
 
+  const ringSegs = IS_MOBILE ? 14 : 22;
   const aura = addMesh(
     group,
-    new THREE.RingGeometry(0.55 * t.scale * 3, 0.68 * t.scale * 3, 28),
+    new THREE.RingGeometry(0.55 * t.scale * 3, 0.68 * t.scale * 3, ringSegs),
     new THREE.MeshBasicMaterial({
       color: t.emissive,
       transparent: true,
@@ -60,7 +61,7 @@ export function createRunner(scene: THREE.Scene, tier: RunnerTier, x: number, z:
 
   const shadow = addMesh(
     group,
-    new THREE.CircleGeometry(0.45 * t.scale * 2.2, 20),
+    new THREE.CircleGeometry(0.45 * t.scale * 2.2, IS_MOBILE ? 10 : 16),
     new THREE.MeshBasicMaterial({ color: '#000000', transparent: true, opacity: 0.28 }),
     0,
     0.02,
@@ -80,20 +81,33 @@ export function createRunner(scene: THREE.Scene, tier: RunnerTier, x: number, z:
   return { mesh: group, x, z, tier, hp: t.hp, maxHp: t.hp, speed: t.speed, alive: true, aura };
 }
 
-export function updateRunners(runners: RunnerEntity[], dt: number, time: number, timeScale: number): void {
+export function updateRunners(
+  runners: RunnerEntity[],
+  dt: number,
+  time: number,
+  timeScale: number,
+  playerZ: number
+): void {
   for (const r of runners) {
     if (!r.alive) continue;
     r.z -= r.speed * dt * timeScale;
     r.mesh.position.set(r.x, 0, r.z);
 
+    const near = isNearZ(r.z, playerZ, IS_MOBILE ? 60 : 85);
+    r.mesh.visible = near;
+    if (!near) continue;
+
     const alien = r.mesh.children[0] as THREE.Group | undefined;
     if (alien) {
       animateAlienRig(alien, time + r.x, true);
-      alien.rotation.y = Math.PI + Math.sin(time * 3 + r.x) * 0.08;
+      if (!IS_MOBILE) alien.rotation.y = Math.PI + Math.sin(time * 3 + r.x) * 0.08;
+      else alien.rotation.y = Math.PI;
     }
 
-    r.aura.rotation.z = time * 1.5;
-    (r.aura.material as THREE.MeshBasicMaterial).opacity = 0.28 + Math.sin(time * 6 + r.z) * 0.12;
+    if (!IS_MOBILE) {
+      r.aura.rotation.z = time * 1.5;
+      (r.aura.material as THREE.MeshBasicMaterial).opacity = 0.28 + Math.sin(time * 6 + r.z) * 0.12;
+    }
   }
 }
 

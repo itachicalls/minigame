@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { addMesh, mat, disposeObject3D } from './ModelUtils';
+import { isNearZ } from './platform';
 
 export type ObstacleKind = 'barricade' | 'pod' | 'cones' | 'debris';
 
@@ -128,9 +129,9 @@ export function obstacleClearHeight(kind: ObstacleKind): number {
   return heights[kind];
 }
 
-export function updateObstacles(obstacles: ObstacleEntity[], time: number): void {
+export function updateObstacles(obstacles: ObstacleEntity[], time: number, playerZ: number): void {
   for (const o of obstacles) {
-    if (o.hit) continue;
+    if (o.hit || !isNearZ(o.z, playerZ)) continue;
     if (o.kind === 'pod') {
       o.mesh.position.y = Math.sin(time * 3 + o.x) * 0.05;
       o.mesh.children.forEach((c, i) => {

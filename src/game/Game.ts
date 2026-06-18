@@ -58,7 +58,7 @@ import {
   packageSpacing,
 } from './Spawner';
 import { ParticleSystem, CameraShake } from './Effects';
-import { getPixelRatio, IS_MOBILE } from './platform';
+import { getPixelRatio, IS_MOBILE, isNearZ } from './platform';
 import { getLevel } from '../data/levels';
 import { getDistrict } from '../data/districts';
 import type { SaveData, RunState, GameResult, LevelDef, DeathReason } from '../types';
@@ -178,8 +178,9 @@ export class Game {
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.22;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
+    this.renderer.sortObjects = false;
     this.scene = new THREE.Scene();
-    this.camera = new THREE.PerspectiveCamera(55, 1, 0.1, 350);
+    this.camera = new THREE.PerspectiveCamera(55, 1, 0.1, IS_MOBILE ? 160 : 280);
     this.world = new World(this.scene);
     this.particles = new ParticleSystem(this.scene);
     this.shake = new CameraShake();
@@ -504,17 +505,23 @@ export class Game {
     this.proceduralSpawn();
     this.cullBehind();
 
-    updateCoins(this.coins, dt);
-    updatePackagePickups(this.packagePickups, this.gameTime);
-    updatePowerUps(this.powerUps, this.gameTime);
-    updateRunners(this.runners, scaledDt, this.gameTime, 1);
+    const pz = this.player.z;
+    this.world.setPlayerZ(pz, dt);
+    this.world.followSun(this.player.x, pz);
+
+    updateCoins(this.coins, dt, this.gameTime, pz);
+    updatePackagePickups(this.packagePickups, this.gameTime, pz);
+    updatePowerUps(this.powerUps, this.gameTime, pz);
+    updateRunners(this.runners, scaledDt, this.gameTime, 1, pz);
     this.throws = updateThrows(this.throws, dt, this.scene);
     this.particles.update(dt);
-    this.world.update(this.gameTime);
+    this.world.update(this.gameTime, pz);
 
-    for (const g of this.routeGates) if (!g.resolved) animateGate(g, this.gameTime);
-    if (this.dropoff) animateDropoff(this.dropoff, this.gameTime);
-    updateObstacles(this.obstacles, this.gameTime);
+    for (const g of this.routeGates) {
+      if (!g.resolved && isNearZ(g.z, pz, 90)) animateGate(g, this.gameTime);
+    }
+    if (this.dropoff && isNearZ(this.dropoff.z, pz, 90)) animateDropoff(this.dropoff, this.gameTime);
+    updateObstacles(this.obstacles, this.gameTime, pz);
 
     const coinGain = tryCollectCoin(this.coins, this.player.x, this.player.z, 2.2);
     if (coinGain) {
@@ -590,35 +597,47 @@ export class Game {
 
   private proceduralSpawn(): void {
     const diff = this.level.difficulty;
-    const spawnAhead = IS_MOBILE ? 95 : 120;
+    const spawnAhead = IS_MOBILE ? 85 : 115;
     const ahead = this.player.z + spawnAhead;
+    let budget = IS_MOBILE ? 2 : 5;
 
-    while (this.nextObstacleZ < ahead && this.nextObstacleZ < this.spawnHorizon) {
+    const maxObstacles = IS_MOBILE ? 18 : 28;
+    const maxRunners = IS_MOBILE ? 6 : 10;
+
+    while (this.nextObstacleZ < ahead && this.nextObstacleZ < this.spawnHorizon && budget > 0) {
+      if (this.obstacles.length >= maxObstacles) break;
       for (const lane of pickObstacleLanes()) {
         this.obstacles.push(createObstacle(this.scene, pickRandomObstacle(), lane, this.nextObstacleZ));
       }
       this.nextObstacleZ += obstacleSpacing(diff) + Math.random() * 6;
+      budget--;
     }
 
-    while (this.nextRunnerZ < ahead && this.nextRunnerZ < this.spawnHorizon) {
+    while (this.nextRunnerZ < ahead && this.nextRunnerZ < this.spawnHorizon && budget > 0) {
+      if (this.runners.length >= maxRunners) break;
       const tier = pickRunnerTier(diff);
       this.runners.push(createRunner(this.scene, tier, pickRandomLane(), this.nextRunnerZ));
       this.nextRunnerZ += runnerSpacing(diff) + Math.random() * 12;
+      budget--;
     }
 
-    while (this.nextPowerUpZ < ahead && this.nextPowerUpZ < this.spawnHorizon) {
+    while (this.nextPowerUpZ < ahead && this.nextPowerUpZ < this.spawnHorizon && budget > 0) {
       this.powerUps.push(createPowerUp(this.scene, randomPowerUpKind(), pickRandomLane(), this.nextPowerUpZ));
       this.nextPowerUpZ += powerUpSpacing();
+      budget--;
     }
 
-    while (this.nextPackageZ < ahead && this.nextPackageZ < this.spawnHorizon) {
+    while (this.nextPackageZ < ahead && this.nextPackageZ < this.spawnHorizon && budget > 0) {
       this.packagePickups.push(...createPackagePickups(this.scene, this.nextPackageZ, 1, 0));
       this.nextPackageZ += packageSpacing();
+      budget--;
     }
 
-    while (this.nextCoinZ < ahead && this.nextCoinZ < this.spawnHorizon) {
-      this.coins.push(...createCoinLine(this.scene, this.nextCoinZ, 3 + Math.floor(Math.random() * 3), 3.5));
-      this.nextCoinZ += 22 + Math.random() * 18;
+    while (this.nextCoinZ < ahead && this.nextCoinZ < this.spawnHorizon && budget > 0) {
+      const coinCount = IS_MOBILE ? 2 + Math.floor(Math.random() * 2) : 3 + Math.floor(Math.random() * 3);
+      this.coins.push(...createCoinLine(this.scene, this.nextCoinZ, coinCount, 3.5));
+      this.nextCoinZ += IS_MOBILE ? 28 + Math.random() * 20 : 22 + Math.random() * 18;
+      budget--;
     }
   }
 
@@ -856,6 +875,7 @@ export class Game {
     this.renderer.setPixelRatio(getPixelRatio());
     this.renderer.setSize(w, h, false);
     this.camera.aspect = w / h;
+    this.camera.far = IS_MOBILE ? 160 : 280;
     this.camera.updateProjectionMatrix();
   }
 

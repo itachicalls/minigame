@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { addMesh, mat, disposeObject3D } from './ModelUtils';
+import { IS_MOBILE, isNearZ } from './platform';
 
 export type PowerUpKind = 'slowmo' | 'fastshot' | 'invincible';
 
@@ -25,7 +26,7 @@ export function createPowerUp(scene: THREE.Scene, kind: PowerUpKind, x: number, 
 
   const base = addMesh(
     group,
-    new THREE.CylinderGeometry(0.55, 0.65, 0.12, 24),
+    new THREE.CylinderGeometry(0.55, 0.65, 0.12, IS_MOBILE ? 12 : 20),
     mat(theme.color, { emissive: theme.emissive, emissiveIntensity: 0.55, metalness: 0.35 }),
     0,
     0.08,
@@ -43,7 +44,7 @@ export function createPowerUp(scene: THREE.Scene, kind: PowerUpKind, x: number, 
 
   const ring = addMesh(
     group,
-    new THREE.RingGeometry(0.6, 0.75, 28),
+    new THREE.RingGeometry(0.6, 0.75, IS_MOBILE ? 14 : 22),
     new THREE.MeshBasicMaterial({ color: theme.emissive, transparent: true, opacity: 0.4, side: THREE.DoubleSide }),
     0,
     0.02,
@@ -56,9 +57,9 @@ export function createPowerUp(scene: THREE.Scene, kind: PowerUpKind, x: number, 
   return { mesh: group, x, z, kind, collected: false, bobPhase: Math.random() * 6 };
 }
 
-export function updatePowerUps(pickups: PowerUpEntity[], time: number): void {
+export function updatePowerUps(pickups: PowerUpEntity[], time: number, playerZ: number): void {
   for (const p of pickups) {
-    if (p.collected) continue;
+    if (p.collected || !isNearZ(p.z, playerZ)) continue;
     p.mesh.position.y = Math.sin(time * 3 + p.bobPhase) * 0.12;
     p.mesh.rotation.y = time * 1.8;
   }
