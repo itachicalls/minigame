@@ -927,3 +927,32 @@ kbd {
   .action-btn { width: 56px; height: 56px; }
   .combat-banner { transform: translate(-50%, -60%); padding: 8px 16px; }
 }
+
+/* Mobile performance + touch polish */
+@media (pointer: coarse) {
+  .hud-panel,
+  .tap-hint,
+  .fork-hint,
+  .combat-banner {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    background: rgba(10, 12, 22, 0.9);
+  }
+
+  .touch-steer {
+    width: 36%;
+    max-width: none;
+    min-height: 160px;
+    opacity: 0.35;
+  }
+
+  .action-btn {
+    min-width: 68px;
+    min-height: 68px;
+    touch-action: manipulation;
+  }
+
+  #jump-btn, #shoot-btn, #ability-btn {
+    -webkit-tap-highlight-color: transparent;
+  }
+}

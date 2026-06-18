@@ -14,6 +14,7 @@ export class UIManager {
   private save: SaveManager;
   private game: Game | null = null;
   private screen: Screen = 'menu';
+  private hudCache: Partial<HudData> = {};
 
   constructor(root: HTMLElement, save: SaveManager) {
     this.root = root;
@@ -232,6 +233,7 @@ export class UIManager {
 
   private startGame(levelId: string): void {
     this.screen = 'game';
+    this.hudCache = {};
     this.setCanvasVisible(true);
     this.clear();
 
@@ -325,12 +327,14 @@ export class UIManager {
     const hudEl = document.getElementById('hud')!;
     this.game.bindTouchControls(hudEl);
 
-    document.getElementById('jump-btn')!.addEventListener('click', (e) => {
+    document.getElementById('jump-btn')!.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
       e.stopPropagation();
       this.game?.jump();
     });
 
-    document.getElementById('shoot-btn')!.addEventListener('click', (e) => {
+    document.getElementById('shoot-btn')!.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
       e.stopPropagation();
       this.game?.shoot();
     });
@@ -342,30 +346,39 @@ export class UIManager {
 
   private updateHud(d: HudData): void {
     const heartsEl = document.getElementById('hud-hearts');
-    if (heartsEl) {
+    if (
+      heartsEl &&
+      (d.integrity !== this.hudCache.integrity || d.maxIntegrity !== this.hudCache.maxIntegrity)
+    ) {
       heartsEl.textContent = '❤'.repeat(d.integrity) + '🖤'.repeat(Math.max(0, d.maxIntegrity - d.integrity));
     }
 
-    const set = (id: string, v: string) => {
-      const el = document.getElementById(id);
-      if (el) el.textContent = v;
-    };
-    set('hud-coins', String(d.coins));
-    set('hud-dist', `${Math.floor(d.distance)}m`);
+    if (d.coins !== this.hudCache.coins) {
+      const el = document.getElementById('hud-coins');
+      if (el) el.textContent = String(d.coins);
+    }
 
-    const prog = document.getElementById('progress-fill');
-    if (prog) prog.style.width = `${Math.min(100, (d.distance / d.totalDistance) * 100)}%`;
+    if (d.distance !== this.hudCache.distance) {
+      const el = document.getElementById('hud-dist');
+      if (el) el.textContent = `${Math.floor(d.distance)}m`;
+    }
 
-    const ammo = document.getElementById('hud-ammo');
-    if (ammo) ammo.textContent = d.packages > 0 ? `📦×${d.packages}` : '📧';
+    if (d.distance !== this.hudCache.distance || d.totalDistance !== this.hudCache.totalDistance) {
+      const prog = document.getElementById('progress-fill');
+      if (prog) prog.style.width = `${Math.min(100, (d.distance / d.totalDistance) * 100)}%`;
+    }
 
-    const shootIcon = document.getElementById('shoot-icon');
-    const shootLabel = document.getElementById('shoot-label');
-    if (shootIcon) shootIcon.textContent = d.packages > 0 ? '📦' : '📧';
-    if (shootLabel) shootLabel.textContent = d.packages > 0 ? 'PACK' : 'MAIL';
+    if (d.packages !== this.hudCache.packages) {
+      const ammo = document.getElementById('hud-ammo');
+      if (ammo) ammo.textContent = d.packages > 0 ? `📦×${d.packages}` : '📧';
+      const shootIcon = document.getElementById('shoot-icon');
+      const shootLabel = document.getElementById('shoot-label');
+      if (shootIcon) shootIcon.textContent = d.packages > 0 ? '📦' : '📧';
+      if (shootLabel) shootLabel.textContent = d.packages > 0 ? 'PACK' : 'MAIL';
+    }
 
     const puEl = document.getElementById('hud-powerup');
-    if (puEl) {
+    if (puEl && d.powerUpLabel !== this.hudCache.powerUpLabel) {
       if (d.powerUpLabel) {
         puEl.textContent = d.powerUpLabel;
         puEl.classList.remove('hidden');
@@ -374,15 +387,13 @@ export class UIManager {
       }
     }
 
-    if (d.invincible) {
-      const heartsEl = document.getElementById('hud-hearts');
-      heartsEl?.classList.add('invincible-glow');
-    } else {
-      document.getElementById('hud-hearts')?.classList.remove('invincible-glow');
+    if (d.invincible !== this.hudCache.invincible) {
+      if (d.invincible) heartsEl?.classList.add('invincible-glow');
+      else document.getElementById('hud-hearts')?.classList.remove('invincible-glow');
     }
 
     const forkHint = document.getElementById('fork-hint');
-    if (forkHint) {
+    if (forkHint && d.forkHint !== this.hudCache.forkHint) {
       if (d.forkHint) {
         forkHint.textContent = d.forkHint;
         forkHint.classList.remove('hidden');
@@ -391,20 +402,18 @@ export class UIManager {
       }
     }
 
-    const shootBtn = document.getElementById('shoot-btn');
-    const shootCd = document.getElementById('shoot-cd');
-    if (shootBtn) shootBtn.classList.toggle('ready', d.shootReady);
-    if (shootCd) shootCd.classList.toggle('hidden', d.shootReady);
+    if (d.shootReady !== this.hudCache.shootReady) {
+      document.getElementById('shoot-btn')?.classList.toggle('ready', d.shootReady);
+      document.getElementById('shoot-cd')?.classList.toggle('hidden', d.shootReady);
+    }
 
-    const jumpBtn = document.getElementById('jump-btn');
-    if (jumpBtn) jumpBtn.classList.toggle('ready', d.jumpReady);
-
-    const tapHint = document.getElementById('tap-hint');
-    if (tapHint) tapHint.classList.toggle('hidden', false);
+    if (d.jumpReady !== this.hudCache.jumpReady) {
+      document.getElementById('jump-btn')?.classList.toggle('ready', d.jumpReady);
+    }
 
     const cdEl = document.getElementById('ability-cd');
-    const btn = document.getElementById('ability-btn') as HTMLButtonElement;
-    if (cdEl && btn) {
+    const btn = document.getElementById('ability-btn') as HTMLButtonElement | null;
+    if (cdEl && btn && (d.abilityCd !== this.hudCache.abilityCd || d.abilityReady !== this.hudCache.abilityReady)) {
       if (d.abilityCd > 0) {
         cdEl.classList.remove('hidden');
         cdEl.textContent = Math.ceil(d.abilityCd).toString();
@@ -414,6 +423,8 @@ export class UIManager {
         btn.disabled = false;
       }
     }
+
+    this.hudCache = { ...d };
   }
 
   private toast(msg: string): void {

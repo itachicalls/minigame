@@ -51,12 +51,12 @@ export class Convoy {
     });
   }
 
-  update(playerX: number, playerZ: number, _dt: number): void {
+  update(playerX: number, playerZ: number, time: number): void {
     this.group.position.set(playerX, 0, playerZ);
     this.units.forEach((helper, i) => {
-      helper.rotation.y = Math.sin(Date.now() * 0.004 + i) * 0.12;
-      helper.position.y = Math.sin(Date.now() * 0.007 + i * 0.6) * 0.035;
-      helper.rotation.z = Math.sin(Date.now() * 0.005 + i) * 0.04;
+      helper.rotation.y = Math.sin(time * 4 + i) * 0.12;
+      helper.position.y = Math.sin(time * 7 + i * 0.6) * 0.035;
+      helper.rotation.z = Math.sin(time * 5 + i) * 0.04;
     });
   }
 

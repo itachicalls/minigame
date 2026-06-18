@@ -197,7 +197,7 @@ export class Player {
   }
 
   update(dt: number, roadHalfWidth: number, moving: boolean): void {
-    const steerSpeed = 14;
+    const steerSpeed = 9;
     this.x += (this.targetX - this.x) * Math.min(1, steerSpeed * dt);
     this.x = THREE.MathUtils.clamp(this.x, -roadHalfWidth, roadHalfWidth);
     this.targetX = THREE.MathUtils.clamp(this.targetX, -roadHalfWidth, roadHalfWidth);

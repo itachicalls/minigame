@@ -36,6 +36,7 @@ import {
   pickRunnerTier,
   runnerTouchRadius,
   disposeRunners,
+  disposeRunner,
   type RunnerEntity,
 } from './Runners';
 import {
@@ -57,6 +58,7 @@ import {
   packageSpacing,
 } from './Spawner';
 import { ParticleSystem, CameraShake } from './Effects';
+import { getPixelRatio, IS_MOBILE } from './platform';
 import { getLevel } from '../data/levels';
 import { getDistrict } from '../data/districts';
 import type { SaveData, RunState, GameResult, LevelDef, DeathReason } from '../types';
@@ -120,8 +122,9 @@ export class Game {
   private elapsed = 0;
   private levelLength = 200;
   private roadHalfWidth = 4.2;
-  private steerSpeed = 20;
+  private steerSpeed = 11;
   private obstacleCooldown = 0;
+  private hurtIFrames = 0;
   private gameTime = 0;
 
   private smokeTimer = 0;
@@ -153,6 +156,9 @@ export class Game {
 
   private cb: GameCallbacks;
   private raf = 0;
+  private lastFrame = 0;
+  private hudTimer = 0;
+  private lastConvoyCount = -1;
   private baseCamera = new THREE.Vector3();
   private lookTarget = new THREE.Vector3();
 
@@ -161,12 +167,16 @@ export class Game {
     this.save = save;
     this.cb = callbacks;
 
-    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    this.renderer = new THREE.WebGLRenderer({
+      canvas,
+      antialias: !IS_MOBILE,
+      powerPreference: 'high-performance',
+    });
+    this.renderer.setPixelRatio(getPixelRatio());
+    this.renderer.shadowMap.enabled = !IS_MOBILE;
+    this.renderer.shadowMap.type = IS_MOBILE ? THREE.BasicShadowMap : THREE.PCFSoftShadowMap;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.15;
+    this.renderer.toneMappingExposure = 1.22;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(55, 1, 0.1, 350);
@@ -236,6 +246,9 @@ export class Game {
     this.dead = false;
     this.elapsed = 0;
     this.gameTime = 0;
+    this.lastFrame = performance.now();
+    this.hudTimer = 0;
+    this.lastConvoyCount = -1;
     this.forkHint = '';
     this.powerUpLabel = '';
     this.throws = [];
@@ -244,6 +257,7 @@ export class Game {
     this.dashActive = false;
     this.abilityCd = 0;
     this.shootCd = 0;
+    this.hurtIFrames = 0;
     this.invincibleTimer = 0;
     this.slowMoTimer = 0;
     this.fastShotTimer = 0;
@@ -332,7 +346,7 @@ export class Game {
   }
 
   private bindPointer(): void {
-    this.canvas.addEventListener('mousedown', (e) => {
+    this.canvas.addEventListener('pointerdown', (e) => {
       if (!this.running || this.dead) return;
       if (e.button === 0) {
         e.preventDefault();
@@ -426,7 +440,9 @@ export class Game {
   private loop = (): void => {
     if (!this.running) return;
     this.raf = requestAnimationFrame(this.loop);
-    const dt = Math.min(0.05, 1 / 60);
+    const now = performance.now();
+    const dt = Math.min(0.05, Math.max(0.001, (now - this.lastFrame) / 1000));
+    this.lastFrame = now;
     this.update(dt);
     this.render();
   };
@@ -442,11 +458,14 @@ export class Game {
       this.timeScale = 1;
     }
     if (this.invincibleTimer > 0) this.invincibleTimer -= dt;
+    if (this.hurtIFrames > 0) this.hurtIFrames -= dt;
     if (this.fastShotTimer > 0) this.fastShotTimer -= dt;
     this.powerUpLabel =
       this.invincibleTimer > 0
         ? '🛡 SHIELD'
-        : this.fastShotTimer > 0
+        : this.hurtIFrames > 0
+          ? '💥 HIT!'
+          : this.fastShotTimer > 0
           ? '⚡ FAST'
           : this.slowMoTimer > 0
             ? '🐢 SLOW-MO'
@@ -476,8 +495,11 @@ export class Game {
     this.player.targetX = THREE.MathUtils.clamp(this.player.targetX, -this.roadHalfWidth, this.roadHalfWidth);
 
     this.player.update(dt, this.roadHalfWidth, true);
-    this.convoy.setCount(this.run.convoy);
-    this.convoy.update(this.player.x, this.player.z, dt);
+    if (this.run.convoy !== this.lastConvoyCount) {
+      this.convoy.setCount(this.run.convoy);
+      this.lastConvoyCount = this.run.convoy;
+    }
+    this.convoy.update(this.player.x, this.player.z, this.gameTime);
 
     this.proceduralSpawn();
     this.cullBehind();
@@ -525,6 +547,29 @@ export class Game {
       return;
     }
 
+    this.hudTimer += dt;
+    const hudInterval = IS_MOBILE ? 0.1 : 0.05;
+    if (this.hudTimer >= hudInterval) {
+      this.hudTimer = 0;
+      this.emitHud(timeLeft);
+    }
+
+    this.cb.onCombat(false);
+
+    this.baseCamera.set(this.player.x * 0.35, 10 + this.player.jumpY * 0.15, this.player.z - 12);
+    this.lookTarget.set(this.player.x * 0.25, 1.5 + this.player.jumpY * 0.2, this.player.z + 18);
+    this.shake.apply(this.camera, this.baseCamera, this.lookTarget);
+  }
+
+  private applyPowerUp(kind: import('./PowerUps').PowerUpKind): void {
+    this.cb.onToast(POWER_LABELS[kind]);
+    if (kind === 'slowmo') this.slowMoTimer = 3.5;
+    else if (kind === 'fastshot') this.fastShotTimer = 5;
+    else if (kind === 'invincible') this.invincibleTimer = 4;
+    this.emitHud(this.level.timeLimit - this.elapsed);
+  }
+
+  private emitHud(timeLeft: number): void {
     this.cb.onHudUpdate({
       integrity: this.run.integrity,
       maxIntegrity: this.run.maxIntegrity,
@@ -541,24 +586,12 @@ export class Game {
       powerUpLabel: this.powerUpLabel || undefined,
       invincible: this.invincibleTimer > 0,
     });
-
-    this.cb.onCombat(false);
-
-    this.baseCamera.set(this.player.x * 0.35, 10 + this.player.jumpY * 0.15, this.player.z - 12);
-    this.lookTarget.set(this.player.x * 0.25, 1.5 + this.player.jumpY * 0.2, this.player.z + 18);
-    this.shake.apply(this.camera, this.baseCamera, this.lookTarget);
-  }
-
-  private applyPowerUp(kind: import('./PowerUps').PowerUpKind): void {
-    this.cb.onToast(POWER_LABELS[kind]);
-    if (kind === 'slowmo') this.slowMoTimer = 3.5;
-    else if (kind === 'fastshot') this.fastShotTimer = 5;
-    else if (kind === 'invincible') this.invincibleTimer = 4;
   }
 
   private proceduralSpawn(): void {
     const diff = this.level.difficulty;
-    const ahead = this.player.z + 120;
+    const spawnAhead = IS_MOBILE ? 95 : 120;
+    const ahead = this.player.z + spawnAhead;
 
     while (this.nextObstacleZ < ahead && this.nextObstacleZ < this.spawnHorizon) {
       for (const lane of pickObstacleLanes()) {
@@ -591,26 +624,44 @@ export class Game {
 
   private cullBehind(): void {
     const minZ = this.player.z - 25;
-    this.obstacles = this.obstacles.filter((o) => {
-      if (o.z < minZ) {
-        this.scene.remove(o.mesh);
-        return false;
-      }
-      return true;
-    });
-    this.runners = this.runners.filter((r) => {
-      if (!r.alive || r.z < minZ) {
-        if (r.alive) this.scene.remove(r.mesh);
-        return false;
-      }
-      return true;
-    });
+
+    const obsCull = this.obstacles.filter((o) => o.z < minZ);
+    if (obsCull.length) {
+      disposeObstacles(obsCull, this.scene);
+      this.obstacles = this.obstacles.filter((o) => o.z >= minZ);
+    }
+
+    const runnerCull = this.runners.filter((r) => r.z < minZ);
+    if (runnerCull.length) {
+      disposeRunners(runnerCull, this.scene);
+      this.runners = this.runners.filter((r) => r.z >= minZ);
+    }
+
+    const coinCull = this.coins.filter((c) => c.collected || c.z < minZ);
+    if (coinCull.length) {
+      disposeCoins(coinCull, this.scene);
+      this.coins = this.coins.filter((c) => !c.collected && c.z >= minZ);
+    }
+
+    const pkgCull = this.packagePickups.filter((p) => p.collected || p.z < minZ);
+    if (pkgCull.length) {
+      disposePickups(pkgCull, this.scene);
+      this.packagePickups = this.packagePickups.filter((p) => !p.collected && p.z >= minZ);
+    }
+
+    const puCull = this.powerUps.filter((p) => p.collected || p.z < minZ);
+    if (puCull.length) {
+      disposePowerUps(puCull, this.scene);
+      this.powerUps = this.powerUps.filter((p) => !p.collected && p.z >= minZ);
+    }
   }
 
   private checkThrowHits(): void {
     for (const t of this.throws) {
+      const tz = t.mesh.position.z;
       for (const r of this.runners) {
         if (!r.alive) continue;
+        if (Math.abs(r.z - tz) > 2.5) continue;
         const dx = t.mesh.position.x - r.x;
         const dz = t.mesh.position.z - r.z;
         if (dx * dx + dz * dz < 1.8) {
@@ -618,17 +669,45 @@ export class Game {
           this.particles.hitBurst(t.mesh.position.x, t.mesh.position.z);
           t.life = 0;
           if (r.hp <= 0) {
-            r.alive = false;
-            r.mesh.visible = false;
             this.run.coins += r.tier === 'stalker' ? 15 : r.tier === 'raider' ? 10 : 5;
+            disposeRunner(r, this.scene);
+            this.runners = this.runners.filter((x) => x !== r);
           }
         }
       }
     }
   }
 
+  private isProtected(): boolean {
+    return this.invincibleTimer > 0 || this.hurtIFrames > 0;
+  }
+
+  /** Lose one life — only die at 0 hearts (forks still instant death) */
+  private takeHit(source: 'obstacle' | 'runner'): void {
+    if (this.isProtected()) return;
+
+    this.run.integrity--;
+    this.run.integrityLost = true;
+    this.hurtIFrames = 1.5;
+    this.obstacleCooldown = 0.6;
+    this.player.flashHurt();
+    this.shake.shake(0.75);
+    this.cb.onDamageFlash();
+    this.particles.hitBurst(this.player.x, this.player.z);
+
+    if (source === 'runner') {
+      this.player.knockback(this.player.x >= 0 ? 2 : -2);
+    }
+
+    if (this.run.integrity <= 0) {
+      this.die(source === 'runner' ? 'overwhelmed' : 'stolen');
+    } else {
+      this.emitHud(this.level.timeLimit - this.elapsed);
+    }
+  }
+
   private checkObstacles(): void {
-    if (this.obstacleCooldown > 0 || this.invincibleTimer > 0) return;
+    if (this.isProtected()) return;
 
     for (const obs of this.obstacles) {
       if (obs.hit) continue;
@@ -640,16 +719,19 @@ export class Game {
       if (this.dashActive) {
         obs.hit = true;
         obs.mesh.visible = false;
+        this.particles.hitBurst(obs.x, obs.z);
         continue;
       }
 
-      this.die('stolen');
+      obs.hit = true;
+      obs.mesh.visible = false;
+      this.takeHit('obstacle');
       return;
     }
   }
 
   private checkRunners(): void {
-    if (this.invincibleTimer > 0 || this.smokeTimer > 0) return;
+    if (this.isProtected() || this.smokeTimer > 0) return;
 
     for (const r of this.runners) {
       if (!r.alive) continue;
@@ -657,7 +739,9 @@ export class Game {
       const dz = Math.abs(this.player.z - r.z);
       const rad = runnerTouchRadius(r.tier);
       if (dx < rad && dz < 1.3 && this.player.jumpY < 0.55) {
-        this.die('overwhelmed');
+        disposeRunner(r, this.scene);
+        this.runners = this.runners.filter((x) => x !== r);
+        this.takeHit('runner');
         return;
       }
     }
@@ -715,7 +799,7 @@ export class Game {
   }
 
   private checkLose(): void {
-    if (this.run.integrity <= 0) this.die('stolen');
+    if (this.run.integrity <= 0 && !this.dead) this.die('stolen');
   }
 
   private die(reason: DeathReason): void {
@@ -725,7 +809,7 @@ export class Game {
     this.player.flashHurt();
     this.shake.shake(1.2);
     this.cb.onDamageFlash();
-    this.particles.burst(this.player.x, 1.5, this.player.z, '#FF1744', 30, 6);
+    this.particles.burst(this.player.x, 1.5, this.player.z, '#FF1744', IS_MOBILE ? 18 : 30, 6);
     setTimeout(() => this.endGame(false), 1200);
   }
 
@@ -769,6 +853,7 @@ export class Game {
     const vp = window.visualViewport;
     const w = vp?.width ?? window.innerWidth;
     const h = vp?.height ?? window.innerHeight;
+    this.renderer.setPixelRatio(getPixelRatio());
     this.renderer.setSize(w, h, false);
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();

@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { DistrictTheme } from '../types';
 import { addMesh, mat, disposeObject3D } from './ModelUtils';
+import { IS_MOBILE } from './platform';
 
 type AnimProp = {
   obj: THREE.Object3D;
@@ -15,6 +16,7 @@ export class World {
   private rootMeshes: THREE.Object3D[] = [];
   private animProps: AnimProp[] = [];
   private roadTexture!: THREE.CanvasTexture;
+  private skyTexture: THREE.CanvasTexture | null = null;
 
   constructor(scene: THREE.Scene) {
     this.scene = scene;
@@ -86,7 +88,8 @@ export class World {
     const rng = seededRandom(theme.id * 1337 + levelLength);
 
     // Clouds
-    for (let i = 0; i < 14; i++) {
+    const cloudCount = IS_MOBILE ? 7 : 14;
+    for (let i = 0; i < cloudCount; i++) {
       const cloud = this.makeCloud(rng);
       cloud.position.set((rng() - 0.5) * 40, 18 + rng() * 14, rng() * (levelLength + 60));
       this.scene.add(cloud);
@@ -95,7 +98,9 @@ export class World {
     }
 
     // Buildings, props, alien crash sites
-    for (let z = 0; z < levelLength + 50; z += 8 + Math.floor(rng() * 8)) {
+    const propStep = IS_MOBILE ? 12 : 8;
+    const propJitter = IS_MOBILE ? 6 : 8;
+    for (let z = 0; z < levelLength + 50; z += propStep + Math.floor(rng() * propJitter)) {
       for (const side of [-1, 1]) {
         const roll = rng();
         if (roll > 0.18) {
@@ -149,6 +154,7 @@ export class World {
     ctx.fillStyle = grad;
     ctx.fillRect(0, 0, 4, 512);
     this.scene.background = new THREE.CanvasTexture(canvas);
+    this.skyTexture = this.scene.background as THREE.CanvasTexture;
   }
 
   private makeRoadTexture(): THREE.CanvasTexture {
@@ -239,10 +245,12 @@ export class World {
     const g = new THREE.Group();
     g.userData.flicker = true;
     addMesh(g, new THREE.CylinderGeometry(0.08, 0.1, 3.5, 8), mat('#455A64', { metalness: 0.6 }), 0, 1.75, 0);
-    addMesh(g, new THREE.SphereGeometry(0.22, 10, 10), mat('#FFFDE7', { emissive: '#FFD54F', emissiveIntensity: 1.2 }), 0, 3.6, 0);
-    const light = new THREE.PointLight(0xFFD54F, 0.6, 12);
-    light.position.set(0, 3.6, 0);
-    g.add(light);
+    addMesh(g, new THREE.SphereGeometry(0.22, 10, 10), mat('#FFFDE7', { emissive: '#FFD54F', emissiveIntensity: IS_MOBILE ? 1.6 : 1.2 }), 0, 3.6, 0);
+    if (!IS_MOBILE) {
+      const light = new THREE.PointLight(0xFFD54F, 0.6, 12);
+      light.position.set(0, 3.6, 0);
+      g.add(light);
+    }
     return g;
   }
 
@@ -300,20 +308,22 @@ export class World {
     ambient.name = 'ambient';
     this.scene.add(ambient);
 
-    const sun = new THREE.DirectionalLight(0xfff0d4, theme.sun);
+    const sun = new THREE.DirectionalLight(0xfff0d4, theme.sun * (IS_MOBILE ? 1.15 : 1));
     sun.position.set(20, 45, -25);
-    sun.castShadow = true;
-    sun.shadow.mapSize.set(2048, 2048);
-    sun.shadow.camera.near = 1;
-    sun.shadow.camera.far = 250;
-    sun.shadow.camera.left = -35;
-    sun.shadow.camera.right = 35;
-    sun.shadow.camera.top = 35;
-    sun.shadow.camera.bottom = -35;
+    sun.castShadow = !IS_MOBILE;
+    if (!IS_MOBILE) {
+      sun.shadow.mapSize.set(1024, 1024);
+      sun.shadow.camera.near = 1;
+      sun.shadow.camera.far = 250;
+      sun.shadow.camera.left = -35;
+      sun.shadow.camera.right = 35;
+      sun.shadow.camera.top = 35;
+      sun.shadow.camera.bottom = -35;
+    }
     sun.name = 'sun';
     this.scene.add(sun);
 
-    if (theme.id >= 4) {
+    if (theme.id >= 4 && !IS_MOBILE) {
       const neon = new THREE.PointLight(0xff00ff, 2.5, 55);
       neon.position.set(0, 12, levelLength * 0.45);
       neon.name = 'neon';
@@ -354,6 +364,10 @@ export class World {
     this.rootMeshes = [];
     this.animProps = [];
     if (this.roadTexture) this.roadTexture.dispose();
+    if (this.skyTexture) {
+      this.skyTexture.dispose();
+      this.skyTexture = null;
+    }
     for (const name of ['hemi', 'ambient', 'sun', 'neon']) {
       const obj = this.scene.getObjectByName(name);
       if (obj) this.scene.remove(obj);

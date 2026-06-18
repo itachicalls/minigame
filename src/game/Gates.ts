@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { BlockerKind, GateOption } from '../types';
 import { addMesh, mat } from './ModelUtils';
+import { IS_MOBILE } from './platform';
 
 function addGatePillar(group: THREE.Group, x: number, accent: string): void {
   addMesh(group, new THREE.CylinderGeometry(0.2, 0.24, 4.4, 12), mat('#CFD8DC', { metalness: 0.45, roughness: 0.4 }), x, 2.2, 0);
@@ -156,12 +157,14 @@ export function createRouteGate(
     0.5
   );
 
-  const beaconL = new THREE.PointLight(leftSafe ? 0x66bb6a : 0xff1744, 1.2, 12);
-  beaconL.position.set(3.2, 2.5, 0);
-  group.add(beaconL);
-  const beaconR = new THREE.PointLight(safeSide === 'right' ? 0x42a5f5 : 0xff1744, 1.2, 12);
-  beaconR.position.set(-3.2, 2.5, 0);
-  group.add(beaconR);
+  if (!IS_MOBILE) {
+    const beaconL = new THREE.PointLight(leftSafe ? 0x66bb6a : 0xff1744, 1.2, 12);
+    beaconL.position.set(3.2, 2.5, 0);
+    group.add(beaconL);
+    const beaconR = new THREE.PointLight(safeSide === 'right' ? 0x42a5f5 : 0xff1744, 1.2, 12);
+    beaconR.position.set(-3.2, 2.5, 0);
+    group.add(beaconR);
+  }
 
   scene.add(group);
 
