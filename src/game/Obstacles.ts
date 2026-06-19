@@ -18,7 +18,7 @@ export type ObstacleEntity = {
 
 export function createObstacle(scene: THREE.Scene, type: ObstacleKind, x: number, z: number): ObstacleEntity {
   const group = new THREE.Group();
-  group.position.set(x, 0, z);
+  group.position.set(x, 0.02, z);
   buildHazardMesh(group, type);
   scene.add(group);
   const meta = HAZARD_META[type];
@@ -39,9 +39,9 @@ export function updateObstacles(obstacles: ObstacleEntity[], time: number, playe
       const blinkPhase = (c.userData.blinkPhase as number) ?? 0;
 
       if (c.userData.isGlow) {
-        c.rotation.z = time * 0.3 + o.x;
+        c.rotation.z = time * 0.25 + o.x;
         const m = c.material as THREE.MeshBasicMaterial;
-        if (m.opacity !== undefined) m.opacity = 0.1 + Math.sin(time * 2 + o.z) * 0.03;
+        if (m.opacity !== undefined) m.opacity = 0.32 + Math.sin(time * 2.5 + o.z) * 0.1;
       }
       if (c.userData.isBob) {
         c.position.y = (c.userData.baseY as number | undefined) ?? c.position.y;
@@ -58,7 +58,7 @@ export function updateObstacles(obstacles: ObstacleEntity[], time: number, playe
     });
 
     if (!IS_MOBILE) {
-      o.mesh.position.y = Math.sin(time * 2.5 + o.x * 0.5) * 0.015;
+      o.mesh.position.y = Math.sin(time * 2.5 + o.x * 0.5) * 0.012;
     }
   }
 }

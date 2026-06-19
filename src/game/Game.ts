@@ -61,7 +61,8 @@ import {
   packageSpacing,
 } from './Spawner';
 import { ParticleSystem, CameraShake } from './Effects';
-import { getPixelRatio, IS_MOBILE, isNearZ, ENABLE_SHADOWS, ENABLE_ANTIALIAS, ENABLE_TONE_MAPPING } from './platform';
+import { RenderPipeline } from './RenderPipeline';
+import { getPixelRatio, IS_MOBILE, isNearZ, ENABLE_SHADOWS, ENABLE_ANTIALIAS, ENABLE_TONE_MAPPING, ENABLE_BLOOM } from './platform';
 import { getViewportMetrics, onViewportChange, applyMobileViewportLock } from './viewport';
 import { getCharacter } from '../data/characters';
 import { getLevel } from '../data/levels';
@@ -103,6 +104,7 @@ export type HudData = {
 export class Game {
   private canvas: HTMLCanvasElement;
   private renderer: THREE.WebGLRenderer;
+  private pipeline: RenderPipeline | null = null;
   private scene: THREE.Scene;
   private camera: THREE.PerspectiveCamera;
   private world: World;
@@ -210,7 +212,7 @@ export class Game {
     this.renderer.shadowMap.type = THREE.BasicShadowMap;
     if (ENABLE_TONE_MAPPING) {
       this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-      this.renderer.toneMappingExposure = 1.15;
+      this.renderer.toneMappingExposure = IS_MOBILE ? 1.08 : 1.22;
     } else {
       this.renderer.toneMapping = THREE.NoToneMapping;
     }
@@ -219,6 +221,9 @@ export class Game {
     this.renderer.info.autoReset = true;
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(55, 1, 0.1, IS_MOBILE ? 150 : 180);
+    if (ENABLE_BLOOM) {
+      this.pipeline = new RenderPipeline(this.renderer, this.scene, this.camera);
+    }
     this.world = new World(this.scene);
     this.particles = new ParticleSystem(this.scene);
     this.shake = new CameraShake();
@@ -618,7 +623,7 @@ export class Game {
     }
     this.player.targetX = THREE.MathUtils.clamp(this.player.targetX, -this.roadHalfWidth, this.roadHalfWidth);
 
-    this.player.update(dt, this.roadHalfWidth, true);
+    this.player.update(dt, this.roadHalfWidth, true, this.run.speed);
     if (this.run.convoy !== this.lastConvoyCount) {
       this.convoy.setCount(IS_MOBILE ? 0 : Math.min(2, this.run.convoy));
       this.lastConvoyCount = this.run.convoy;
@@ -1129,7 +1134,19 @@ export class Game {
   }
 
   private render(): void {
-    this.renderer.render(this.scene, this.camera);
+    if (ENABLE_TONE_MAPPING) {
+      const night = this.world.getSkyNight();
+      const base = IS_MOBILE ? 1.08 : 1.22;
+      this.renderer.toneMappingExposure = base * (1 - night * 0.22);
+    }
+    if (this.pipeline) {
+      const night = this.world.getSkyNight();
+      const bloom = (IS_MOBILE ? 0.3 : 0.34) + night * (IS_MOBILE ? 0.16 : 0.18);
+      this.pipeline.setBloomStrength(bloom);
+      this.pipeline.render();
+    } else {
+      this.renderer.render(this.scene, this.camera);
+    }
   }
 
   private syncViewport(): void {
@@ -1175,6 +1192,7 @@ export class Game {
     if (w < 1 || h < 1) return;
     this.renderer.setPixelRatio(getPixelRatio());
     this.renderer.setSize(w, h, false);
+    this.pipeline?.setSize(w, h);
     this.camera.aspect = w / h;
     this.camera.far = IS_MOBILE ? 150 : 180;
     this.camera.updateProjectionMatrix();
@@ -1209,6 +1227,8 @@ export class Game {
     this.viewportCleanup = null;
     this.stop();
     this.cleanup();
+    this.pipeline?.dispose();
+    this.pipeline = null;
     this.renderer.dispose();
   }
 }

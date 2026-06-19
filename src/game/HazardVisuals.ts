@@ -106,28 +106,73 @@ export function buildHazardMesh(group: THREE.Group, kind: ObstacleKind): void {
   }
 }
 
-/** Subtle road wear — no neon rings or blink posts. */
+/** Subtle road wear + high-visibility hazard marker ring */
 function groundBase(parent: THREE.Object3D, radius: number): void {
   const shadow = addMesh(
     parent,
-    new THREE.CircleGeometry(radius * 0.95, SEG * 2),
-    mat('#0c0e14', { transparent: true, opacity: 0.38, roughness: 1 }),
+    new THREE.CircleGeometry(radius * 0.98, SEG * 2),
+    mat('#0a0c12', { transparent: true, opacity: 0.52, roughness: 1 }),
     0,
-    0.006,
+    0.005,
     0,
     false
   );
   shadow.rotation.x = -Math.PI / 2;
-  const scuff = addMesh(
+
+  const warnRing = addMesh(
     parent,
-    new THREE.RingGeometry(radius * 0.55, radius * 0.72, SEG * 2),
-    mat('#1a1d26', { transparent: true, opacity: 0.25, roughness: 1 }),
+    new THREE.RingGeometry(radius * 0.72, radius * 0.96, SEG * 2),
+    new THREE.MeshBasicMaterial({
+      color: '#FF9800',
+      transparent: true,
+      opacity: 0.42,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    }),
     0,
-    0.008,
+    0.012,
     0,
     false
   );
-  scuff.rotation.x = -Math.PI / 2;
+  warnRing.rotation.x = -Math.PI / 2;
+  warnRing.userData.isGlow = true;
+
+  const innerRing = addMesh(
+    parent,
+    new THREE.RingGeometry(radius * 0.38, radius * 0.52, SEG * 2),
+    new THREE.MeshBasicMaterial({
+      color: '#FFE082',
+      transparent: true,
+      opacity: 0.22,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    }),
+    0,
+    0.014,
+    0,
+    false
+  );
+  innerRing.rotation.x = -Math.PI / 2;
+
+  for (let i = 0; i < 4; i++) {
+    const a = (i / 4) * Math.PI * 2 + Math.PI / 4;
+    const post = addMesh(
+      parent,
+      new THREE.CylinderGeometry(0.025, 0.035, 0.28, 4),
+      mat('#FF9800', { emissive: '#FF9800', emissiveIntensity: 0.35, roughness: 0.6 }),
+      Math.cos(a) * radius * 0.82,
+      0.14,
+      Math.sin(a) * radius * 0.82
+    );
+    addMesh(
+      post,
+      new THREE.SphereGeometry(0.045, 6, 6),
+      mat('#FFEB3B', { emissive: '#FFC107', emissiveIntensity: 0.55 }),
+      0,
+      0.16,
+      0
+    );
+  }
 }
 
 function woodMat(color: string) {

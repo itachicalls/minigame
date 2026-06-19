@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { addMesh, disposeObject3D } from './ModelUtils';
+import { IS_MOBILE } from './platform';
 import { createMailmanMesh } from './MailmanModel';
 import { setPackageOrbTheme, updateCarriedPackageOrb } from './PackageVisual';
 import type { CharacterDef } from '../data/characters';
@@ -20,6 +21,8 @@ export class Player {
   private slideTimer = 0;
   private readonly baseBodyY = 0.28;
   private shadow: THREE.Mesh;
+  private speedTrails: THREE.Mesh[] = [];
+  private trailPhase = 0;
 
   private body: THREE.Group;
   private leftLeg: THREE.Group;
@@ -56,10 +59,33 @@ export class Player {
     );
     this.shadow.rotation.x = -Math.PI / 2;
 
+    const trailMat = new THREE.MeshBasicMaterial({
+      color: '#80DEEA',
+      transparent: true,
+      opacity: 0,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    });
+    for (let i = 0; i < (IS_MOBILE ? 3 : 4); i++) {
+      const trail = addMesh(
+        scene,
+        new THREE.PlaneGeometry(0.35, 0.06),
+        trailMat.clone(),
+        0,
+        0.12,
+        0,
+        false
+      );
+      trail.rotation.x = -Math.PI / 2;
+      trail.visible = false;
+      this.speedTrails.push(trail);
+    }
+
     scene.add(this.mesh);
   }
 
-  update(dt: number, roadHalfWidth: number, moving: boolean): void {
+  update(dt: number, roadHalfWidth: number, moving: boolean, speed = 12): void {
     const steerSpeed = 9;
     this.x += (this.targetX - this.x) * Math.min(1, steerSpeed * dt);
     this.x = THREE.MathUtils.clamp(this.x, -roadHalfWidth, roadHalfWidth);
@@ -88,6 +114,23 @@ export class Player {
     const shadowScale = 1 - Math.min(0.45, this.jumpY * 0.12);
     this.shadow.scale.set(shadowScale, shadowScale, 1);
     (this.shadow.material as THREE.MeshBasicMaterial).opacity = 0.18 + shadowScale * 0.14;
+
+    const fast = moving && speed > 13 && !this.isJumping;
+    if (fast) this.trailPhase += dt * (speed * 0.8);
+    for (let i = 0; i < this.speedTrails.length; i++) {
+      const trail = this.speedTrails[i];
+      if (!fast) {
+        trail.visible = false;
+        continue;
+      }
+      trail.visible = true;
+      const t = i / this.speedTrails.length;
+      trail.position.set(this.x + Math.sin(this.trailPhase + i) * 0.08, 0.08 + t * 0.04, this.z + 0.45 + i * 0.22);
+      trail.rotation.z = this.x * 0.04;
+      const m = trail.material as THREE.MeshBasicMaterial;
+      m.opacity = (0.35 - t * 0.28) * Math.min(1, (speed - 12) / 8);
+      trail.scale.set(0.8 + (1 - t) * 0.6, 1, 1);
+    }
 
     if (this.isSliding) {
       this.body.position.y = 0.08;
@@ -203,6 +246,12 @@ export class Player {
   dispose(scene: THREE.Scene): void {
     scene.remove(this.mesh);
     scene.remove(this.shadow);
+    for (const t of this.speedTrails) {
+      scene.remove(t);
+      t.geometry.dispose();
+      (t.material as THREE.Material).dispose();
+    }
+    this.speedTrails = [];
     disposeObject3D(this.mesh);
     this.shadow.geometry.dispose();
     (this.shadow.material as THREE.Material).dispose();

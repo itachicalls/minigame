@@ -8,17 +8,19 @@ export const IS_MOBILE =
 
 export const ENABLE_SHADOWS = false;
 export const ENABLE_ANTIALIAS = false;
-export const ENABLE_TONE_MAPPING = !IS_MOBILE;
+export const ENABLE_TONE_MAPPING = true;
+export const ENABLE_BLOOM = true;
+export const BLOOM_RES_SCALE = IS_MOBILE ? 0.4 : 0.32;
 
-export const NEAR_RANGE = IS_MOBILE ? 48 : 62;
-export const WORLD_AHEAD = IS_MOBILE ? 72 : 88;
-export const WORLD_BEHIND = IS_MOBILE ? 28 : 34;
-export const SKY_RES = IS_MOBILE ? 256 : 384;
-export const SKY_UPDATE_SEC = IS_MOBILE ? 0.35 : 0.22;
+export const NEAR_RANGE = IS_MOBILE ? 48 : 58;
+export const WORLD_AHEAD = IS_MOBILE ? 72 : 80;
+export const WORLD_BEHIND = IS_MOBILE ? 28 : 32;
+export const SKY_RES = IS_MOBILE ? 256 : 320;
+export const SKY_UPDATE_SEC = IS_MOBILE ? 0.35 : 0.45;
 
 export function getPixelRatio(): number {
   const dpr = typeof window !== 'undefined' ? window.devicePixelRatio : 1;
-  return IS_MOBILE ? Math.min(dpr, 1) : Math.min(dpr, 1);
+  return IS_MOBILE ? Math.min(dpr, 1.25) : Math.min(dpr, 1.1);
 }
 
 export function isNearZ(z: number, playerZ: number, range = NEAR_RANGE): boolean {

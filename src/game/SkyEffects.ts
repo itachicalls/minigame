@@ -33,7 +33,7 @@ export class SkyEffects {
 
   build(levelLength: number, rng: () => number): void {
     this.clear();
-    const count = IS_MOBILE ? 4 : 7;
+    const count = IS_MOBILE ? 4 : 5;
     for (let i = 0; i < count; i++) {
       const z = 40 + rng() * (levelLength + 80);
       const ufo = this.makeSkyUfo(rng);
@@ -132,7 +132,7 @@ export class SkyEffects {
   setNight(n: number): void {
     this.night = n;
     for (const u of this.ufos) {
-      u.group.visible = n > 0.25 || !IS_MOBILE;
+      u.group.visible = n > 0.25;
       u.group.traverse((c) => {
         if (c instanceof THREE.Mesh && c.userData.isUfoBeam) {
           (c.material as THREE.MeshBasicMaterial).opacity = 0.08 + n * 0.12;
@@ -149,7 +149,7 @@ export class SkyEffects {
         u.group.visible = false;
         continue;
       }
-      u.group.visible = this.night > 0.2 || !IS_MOBILE;
+      u.group.visible = this.night > 0.2;
       u.group.position.set(
         u.baseX + Math.sin(time * 0.15 + u.phase) * 2.5,
         u.baseY + Math.sin(time * u.speed + u.phase) * 1.2,

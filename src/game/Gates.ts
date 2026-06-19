@@ -204,7 +204,7 @@ export function createBlocker(
     addMesh(group, new THREE.CylinderGeometry(0.08, 0.08, 0.5, 8), mat('#FFD54F', { emissive: '#FFC107', emissiveIntensity: 0.6 }), -3.2, 1.1, 0.4);
   }
 
-  const gateLight = new THREE.PointLight(theme.light, 0.9, 14);
+  const gateLight = new THREE.PointLight(theme.light, IS_MOBILE ? 0.5 : 0, 14);
   gateLight.position.set(0, 3, 2);
   group.add(gateLight);
 
@@ -375,9 +375,15 @@ export function createVaultGate(
   group.position.set(0, 0, z);
 
   const isJump = clearance === 'jump';
-  const barY = isJump ? 0.5 : 1.52;
-  const poleH = isJump ? 1.28 : 2.38;
+  const barY = isJump ? 0.48 : 1.82;
+  const poleH = isJump ? 1.28 : 2.72;
   const seg = IS_MOBILE ? 8 : 12;
+
+  const wireEmissive = isJump ? '#FFD54F' : '#E040FB';
+  const glowColor = isJump ? '#80DEEA' : '#EA80FC';
+  const sparkA = isJump ? '#FFEB3B' : '#E1BEE7';
+  const sparkB = isJump ? '#B2FF59' : '#B388FF';
+  const arcColor = isJump ? '#CCFF90' : '#CE93D8';
 
   addMesh(group, new THREE.BoxGeometry(0.14, 0.05, 0.55), mat('#37474F', { metalness: 0.4 }), -2.4, 0.025, 0.18);
   addMesh(group, new THREE.CylinderGeometry(0.05, 0.06, 0.45, 6), mat('#455A64', { metalness: 0.55 }), -2.55, 0.04, -0.12);
@@ -437,8 +443,8 @@ export function createVaultGate(
 
   const barrierMesh = addMesh(
     group,
-    new THREE.CylinderGeometry(0.07, 0.07, cableSpan, seg),
-    mat('#263238', { metalness: 0.75, roughness: 0.35, emissive: '#FFD54F', emissiveIntensity: 0.12 }),
+    new THREE.CylinderGeometry(isJump ? 0.07 : 0.085, isJump ? 0.07 : 0.085, cableSpan, seg),
+    mat('#263238', { metalness: 0.75, roughness: 0.35, emissive: wireEmissive, emissiveIntensity: isJump ? 0.15 : 0.35 }),
     0,
     barY - 0.05,
     0
@@ -447,11 +453,11 @@ export function createVaultGate(
 
   const glowMesh = addMesh(
     group,
-    new THREE.CylinderGeometry(0.11, 0.11, cableSpan - 0.05, seg),
+    new THREE.CylinderGeometry(isJump ? 0.11 : 0.14, isJump ? 0.11 : 0.14, cableSpan - 0.05, seg),
     new THREE.MeshBasicMaterial({
-      color: '#80DEEA',
+      color: glowColor,
       transparent: true,
-      opacity: 0.32,
+      opacity: isJump ? 0.32 : 0.48,
       blending: THREE.AdditiveBlending,
       depthWrite: false,
     }),
@@ -472,9 +478,9 @@ export function createVaultGate(
       group,
       new THREE.SphereGeometry(0.035 + (i % 2) * 0.015, 6, 6),
       new THREE.MeshBasicMaterial({
-        color: i % 3 === 0 ? '#FFEB3B' : '#B2FF59',
+        color: i % 3 === 0 ? sparkA : sparkB,
         transparent: true,
-        opacity: 0.65,
+        opacity: isJump ? 0.65 : 0.78,
         blending: THREE.AdditiveBlending,
         depthWrite: false,
       }),
@@ -494,9 +500,9 @@ export function createVaultGate(
       group,
       new THREE.PlaneGeometry(0.32, 0.06),
       new THREE.MeshBasicMaterial({
-        color: '#CCFF90',
+        color: arcColor,
         transparent: true,
-        opacity: 0.4,
+        opacity: isJump ? 0.4 : 0.55,
         side: THREE.DoubleSide,
         blending: THREE.AdditiveBlending,
         depthWrite: false,
@@ -511,11 +517,6 @@ export function createVaultGate(
     sparks.push(arc);
   }
 
-  if (!IS_MOBILE) {
-    const light = new THREE.PointLight('#80DEEA', 0.45, 6);
-    light.position.set(0, barY, 0.5);
-    group.add(light);
-  }
 
   scene.add(group);
   return {
@@ -537,12 +538,14 @@ export function animateVaultGate(v: VaultGateEntity, time: number): void {
     return;
   }
 
+  const isSlide = v.clearance === 'slide';
   const flicker = 0.22 + Math.sin(time * 14 + v.z) * 0.1 + Math.sin(time * 27) * 0.06;
   const glowMat = v.glowMesh.material as THREE.MeshBasicMaterial;
-  glowMat.opacity = flicker + 0.12;
+  glowMat.opacity = (flicker + 0.12) * (isSlide ? 1.35 : 1);
 
   const barMat = v.barrierMesh.material as THREE.MeshStandardMaterial;
-  barMat.emissiveIntensity = 0.1 + Math.abs(Math.sin(time * 11 + v.z * 0.3)) * 0.35;
+  const emBase = isSlide ? 0.25 : 0.1;
+  barMat.emissiveIntensity = emBase + Math.abs(Math.sin(time * 11 + v.z * 0.3)) * (isSlide ? 0.55 : 0.35);
 
   for (const s of v.sparks) {
     const phase = (s.userData.sparkPhase as number) ?? 0;

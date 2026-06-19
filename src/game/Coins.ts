@@ -8,11 +8,13 @@ export type CoinEntity = {
   collected: boolean;
 };
 
-const COIN_GEO = new THREE.CylinderGeometry(0.25, 0.25, 0.08, IS_MOBILE ? 8 : 12);
-const COIN_MAT = new THREE.MeshLambertMaterial({
+const COIN_GEO = new THREE.CylinderGeometry(0.25, 0.25, 0.08, IS_MOBILE ? 10 : 14);
+const COIN_MAT = new THREE.MeshStandardMaterial({
   color: '#FFD54F',
-  emissive: '#FFA000',
-  emissiveIntensity: 0.5,
+  emissive: '#FF8F00',
+  emissiveIntensity: 0.55,
+  metalness: 0.82,
+  roughness: 0.22,
 });
 
 export function createCoinLine(
@@ -39,8 +41,10 @@ export function createCoinLine(
 export function updateCoins(coins: CoinEntity[], dt: number, time: number, playerZ: number): void {
   for (const c of coins) {
     if (c.collected || !isNearZ(c.z, playerZ)) continue;
-    c.mesh.rotation.z += dt * 3;
-    c.mesh.position.y = 0.6 + Math.sin(time * 5 + c.x) * 0.1;
+    c.mesh.rotation.z += dt * 3.5;
+    c.mesh.position.y = 0.6 + Math.sin(time * 5 + c.x) * 0.12;
+    const mat = c.mesh.material as THREE.MeshStandardMaterial;
+    mat.emissiveIntensity = 0.45 + Math.sin(time * 8 + c.x * 2) * 0.25;
   }
 }
 
