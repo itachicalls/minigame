@@ -29,6 +29,7 @@ export class UIManager {
   private screen: Screen = 'menu';
   private hudCache: Partial<HudData> = {};
   private tapHintTimer: ReturnType<typeof setTimeout> | null = null;
+  private activeLevelId = '';
 
   constructor(root: HTMLElement, save: SaveManager) {
     this.root = root;
@@ -307,6 +308,7 @@ export class UIManager {
   }
 
   private startGame(levelId: string): void {
+    this.activeLevelId = levelId;
     this.screen = 'game';
     setGameActive(true);
     this.hudCache = {};
@@ -341,7 +343,7 @@ export class UIManager {
         <div class="fork-hint hidden" id="fork-hint"></div>
         <div class="screen-blur hidden" id="screen-blur"></div>
 
-        <div class="tap-hint" id="tap-hint">Jump · Slide · Shoot · Swerve at forks!</div>
+        <div class="tap-hint" id="tap-hint">${IS_MOBILE ? 'Jump · Slide center · Tap screen to shoot' : 'Jump · Slide · Shoot · Swerve at forks!'}</div>
 
         <div class="combat-banner hidden" id="combat-banner">
           <div class="combat-title" id="combat-title">⚠ INTERCEPT!</div>
@@ -355,55 +357,50 @@ export class UIManager {
 
         <div class="damage-flash hidden" id="damage-flash"></div>
 
-        ${IS_MOBILE ? `<div class="hud-actions-left">
-          <button class="action-btn jump-btn" id="jump-btn" title="Jump">
-            <span class="action-icon">⬆</span>
-            <span>JUMP</span>
-          </button>
-          <button class="action-btn slide-btn" id="slide-btn" title="Slide">
-            <span class="action-icon">⬇</span>
-            <span>SLIDE</span>
-          </button>
-        </div>` : ''}
-
         <div class="hud-bottom ${IS_MOBILE ? 'hud-bottom-mobile' : ''}">
-          ${IS_MOBILE ? '' : `<button class="action-btn jump-btn" id="jump-btn" title="Jump (SPACE)">
+          <button class="action-btn jump-btn" id="jump-btn" title="Jump${IS_MOBILE ? '' : ' (SPACE)'}">
             <span class="action-icon">⬆</span>
             <span>JUMP</span>
           </button>
-          <button class="action-btn slide-btn" id="slide-btn" title="Slide (S)">
+          <button class="action-btn slide-btn" id="slide-btn" title="Slide${IS_MOBILE ? '' : ' (S)'}">
             <span class="action-icon">⬇</span>
             <span>SLIDE</span>
-          </button>`}
-          <button class="action-btn shoot-btn" id="shoot-btn" title="Shoot (click)">
+          </button>
+          ${IS_MOBILE ? '' : `<button class="action-btn shoot-btn" id="shoot-btn" title="Shoot (click)">
             <span class="action-icon" id="shoot-icon">📧</span>
             <span id="shoot-label">SHOOT</span>
             <div class="ability-cd hidden" id="shoot-cd"></div>
           </button>
-          ${IS_MOBILE ? '' : `<button class="action-btn special-btn" id="special-btn" title="Ground Quake (E) — 3 hits">
+          <button class="action-btn special-btn" id="special-btn" title="Ground Quake (E) — 3 hits">
             <div class="special-meter"><div class="special-fill" id="special-fill"></div></div>
             <span class="action-icon">💥</span>
             <span id="special-label">QUAKE</span>
             <span class="special-count hidden" id="special-shakes"></span>
-          </button>`}
-          ${!IS_MOBILE && this.save.get().equippedAbility ? `<button class="action-btn ability-btn" id="ability-btn" title="Shop ability (Q)">
+          </button>
+          ${this.save.get().equippedAbility ? `<button class="action-btn ability-btn" id="ability-btn" title="Shop ability (Q)">
+            <span class="action-icon">⚡</span>
+            <span id="ability-label">Ability</span>
+            <div class="ability-cd hidden" id="ability-cd"></div>
+          </button>` : ''}`}
+        </div>
+
+        ${IS_MOBILE ? `<div class="hud-actions-right">
+          <button type="button" class="action-btn hud-back-btn" id="hud-back-btn" title="Back to levels">
+            <span class="action-icon">←</span>
+            <span>BACK</span>
+          </button>
+          <button class="action-btn special-btn" id="special-btn" title="Ground Quake">
+            <div class="special-meter"><div class="special-fill" id="special-fill"></div></div>
+            <span class="action-icon">💥</span>
+            <span id="special-label">QUAKE</span>
+            <span class="special-count hidden" id="special-shakes"></span>
+          </button>
+          ${this.save.get().equippedAbility ? `<button class="action-btn ability-btn" id="ability-btn" title="Ability">
             <span class="action-icon">⚡</span>
             <span id="ability-label">Ability</span>
             <div class="ability-cd hidden" id="ability-cd"></div>
           </button>` : ''}
-        </div>
-
-        ${IS_MOBILE ? `<button class="action-btn special-btn hud-quake-btn" id="special-btn" title="Ground Quake">
-          <div class="special-meter"><div class="special-fill" id="special-fill"></div></div>
-          <span class="action-icon">💥</span>
-          <span id="special-label">QUAKE</span>
-          <span class="special-count hidden" id="special-shakes"></span>
-        </button>
-        ${this.save.get().equippedAbility ? `<button class="action-btn ability-btn hud-ability-float" id="ability-btn" title="Ability">
-          <span class="action-icon">⚡</span>
-          <span id="ability-label">Ability</span>
-          <div class="ability-cd hidden" id="ability-cd"></div>
-        </button>` : ''}` : ''}
+        </div>` : ''}
       </div>
     `);
     this.root.appendChild(hud);
@@ -468,10 +465,20 @@ export class UIManager {
       this.game?.slide();
     });
 
-    document.getElementById('shoot-btn')!.addEventListener('pointerdown', (e) => {
+    const shootBtn = document.getElementById('shoot-btn');
+    shootBtn?.addEventListener('pointerdown', (e) => {
       e.preventDefault();
       e.stopPropagation();
       this.game?.shoot();
+    });
+
+    document.getElementById('hud-back-btn')?.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      this.game?.dispose();
+      this.game = null;
+      setGameActive(false);
+      this.showLevels();
     });
 
     document.getElementById('special-btn')!.addEventListener('pointerdown', (e) => {

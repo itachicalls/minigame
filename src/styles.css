@@ -1019,6 +1019,30 @@ kbd {
   flex-wrap: nowrap;
 }
 
+.hud-bottom-mobile {
+  gap: 12px;
+}
+
+.hud-actions-right {
+  position: absolute;
+  right: max(10px, env(safe-area-inset-right));
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  pointer-events: auto;
+  z-index: 5;
+}
+
+.hud-back-btn {
+  border-color: rgba(144, 164, 174, 0.55);
+}
+
+.slide-btn { border-color: rgba(171, 71, 188, 0.55); }
+.slide-btn.ready { border-color: #AB47BC; box-shadow: 0 0 16px rgba(171, 71, 188, 0.35); }
+
 .hud-ammo {
   position: absolute;
   top: max(12px, env(safe-area-inset-top));
@@ -1440,6 +1464,25 @@ kbd {
     max-width: 96vw;
   }
 
+  .hud-bottom-mobile .action-btn {
+    width: 68px;
+    height: 68px;
+    min-width: 68px;
+    min-height: 68px;
+  }
+
+  .hud-actions-right .action-btn {
+    width: 62px;
+    height: 62px;
+    min-width: 62px;
+    min-height: 62px;
+    font-size: 0.58rem;
+  }
+
+  .hud-actions-right .action-icon {
+    font-size: 1.15rem;
+  }
+
   .hud-bottom .action-btn {
     width: 58px;
     height: 58px;
@@ -1521,7 +1564,7 @@ kbd {
     touch-action: none;
   }
 
-  #jump-btn, #shoot-btn, #ability-btn {
+  #jump-btn, #slide-btn, #shoot-btn, #ability-btn, #hud-back-btn {
     -webkit-tap-highlight-color: transparent;
   }
 }

@@ -269,7 +269,7 @@ export class Game {
     const onTap = (e: PointerEvent) => {
       if (!this.running || this.dead) return;
       const t = e.target as HTMLElement;
-      if (t.closest('#steer-left, #steer-right, #ability-btn, #special-btn, #jump-btn, #slide-btn, #shoot-btn, #autofire-toggle, .hud-panel, .btn')) return;
+      if (t.closest('#steer-left, #steer-right, #ability-btn, #special-btn, #jump-btn, #slide-btn, #shoot-btn, #hud-back-btn, #autofire-toggle, .hud-panel, .hud-actions-right, .btn')) return;
       this.shoot();
     };
     hudEl.addEventListener('pointerdown', onTap);

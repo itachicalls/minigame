@@ -56,8 +56,9 @@ export type VaultGateEntity = {
   z: number;
   clearance: 'jump' | 'slide';
   resolved: boolean;
-  barMesh: THREE.Mesh;
-  beamMesh?: THREE.Mesh;
+  topPanel: THREE.Group;
+  bottomPanel: THREE.Group;
+  barrierMesh: THREE.Mesh;
   label: THREE.Sprite;
 };
 
@@ -363,7 +364,7 @@ export function createDropoff(scene: THREE.Scene, z: number): DropoffEntity {
   return { kind: 'dropoff', mesh: group, z, reached: false, platform, rings, beam, holoSign };
 }
 
-/** Jump-over or slide-under barrier spanning the lane */
+/** Stacked green/red gate bands — jump clears the lower band, slide clears the upper band */
 export function createVaultGate(
   scene: THREE.Scene,
   z: number,
@@ -372,72 +373,65 @@ export function createVaultGate(
   const group = new THREE.Group();
   group.position.set(0, 0, z);
 
-  for (const x of [-3.8, 3.8]) {
-    addMesh(group, new THREE.BoxGeometry(0.14, clearance === 'jump' ? 1.05 : 2.35, 0.14), mat('#455A64', { metalness: 0.45 }), x, clearance === 'jump' ? 0.52 : 1.17, 0);
+  const jumpSafe = clearance === 'jump';
+  const slideSafe = clearance === 'slide';
+
+  for (const x of [-3.85, 3.85]) {
+    addMesh(group, new THREE.BoxGeometry(0.16, 3.65, 0.16), mat(FRAME_COLOR, { roughness: 0.35, metalness: 0.15 }), x, 1.82, 0.05);
+    addMesh(group, new THREE.BoxGeometry(0.22, 0.14, 0.22), mat('#37474F', { metalness: 0.5, roughness: 0.4 }), x, 0.07, 0.05);
+    addMesh(group, new THREE.BoxGeometry(0.22, 0.14, 0.22), mat('#37474F', { metalness: 0.5, roughness: 0.4 }), x, 3.58, 0.05);
+  }
+
+  const topPanel = makeVaultGateBand(group, 2.45, slideSafe);
+  const bottomPanel = makeVaultGateBand(group, 0.95, jumpSafe);
+
+  addMesh(group, new THREE.BoxGeometry(7.9, 0.1, 0.14), mat('#37474F', { metalness: 0.45, roughness: 0.5 }), 0, 1.68, 0.06);
+
+  const barrierY = jumpSafe ? 0.52 : 1.52;
+  const barrierMesh = addMesh(
+    group,
+    new THREE.BoxGeometry(7.9, 0.22, 0.28),
+    mat(jumpSafe ? '#F9A825' : '#7B1FA2', {
+      emissive: jumpSafe ? '#F57C00' : '#6A1B9A',
+      emissiveIntensity: 0.18,
+      roughness: 0.5,
+    }),
+    0,
+    barrierY,
+    0
+  );
+  for (let i = 0; i < 8; i++) {
     addMesh(
-      group,
-      new THREE.SphereGeometry(0.1, 8, 8),
-      mat(clearance === 'jump' ? '#FF9800' : '#AB47BC', { emissive: clearance === 'jump' ? '#FF9800' : '#AB47BC', emissiveIntensity: 0.45 }),
-      x,
-      clearance === 'jump' ? 1.05 : 2.35,
-      0
+      barrierMesh,
+      new THREE.BoxGeometry(0.12, 0.24, 0.04),
+      mat(i % 2 === 0 ? '#F9A825' : '#212121', { roughness: 0.7 }),
+      -3.4 + i * 0.95,
+      0,
+      0.16
     );
   }
 
-  let barMesh: THREE.Mesh;
-  let beamMesh: THREE.Mesh | undefined;
+  const jumpLabel = makeTextSprite('⬆ JUMP', '#FFFFFF', 'rgba(27,94,32,0.92)');
+  jumpLabel.position.set(0, 0.95, 0.42);
+  jumpLabel.scale.set(2.6, 0.65, 1);
+  group.add(jumpLabel);
 
-  if (clearance === 'jump') {
-    barMesh = addMesh(
-      group,
-      new THREE.BoxGeometry(8.2, 0.22, 0.28),
-      mat('#FF9800', { emissive: '#F57C00', emissiveIntensity: 0.25, roughness: 0.55 }),
-      0,
-      0.48,
-      0
-    );
-    for (let i = 0; i < 7; i++) {
-      addMesh(
-        barMesh,
-        new THREE.BoxGeometry(0.14, 0.24, 0.04),
-        mat(i % 2 === 0 ? '#FFEB3B' : '#212121', { emissive: i % 2 === 0 ? '#FFC107' : '#000', emissiveIntensity: i % 2 === 0 ? 0.3 : 0 }),
-        -3.2 + i * 1.05,
-        0,
-        0.16
-      );
-    }
-  } else {
-    barMesh = addMesh(
-      group,
-      new THREE.BoxGeometry(8.2, 0.18, 0.22),
-      mat('#7B1FA2', { emissive: '#AB47BC', emissiveIntensity: 0.2, roughness: 0.5 }),
-      0,
-      1.55,
-      0
-    );
-    beamMesh = addMesh(
-      group,
-      new THREE.BoxGeometry(7.8, 0.04, 0.12),
-      new THREE.MeshBasicMaterial({ color: '#EA80FC', transparent: true, opacity: 0.35 }),
-      0,
-      1.42,
-      0,
-      false
-    );
-    addMesh(group, new THREE.BoxGeometry(8.2, 0.06, 0.08), mat('#FFD54F', { emissive: '#FFC107', emissiveIntensity: 0.35 }), 0, 1.48, 0.12);
-  }
+  const slideLabel = makeTextSprite('⬇ SLIDE', '#FFFFFF', 'rgba(27,94,32,0.92)');
+  slideLabel.position.set(0, 2.45, 0.42);
+  slideLabel.scale.set(2.6, 0.65, 1);
+  group.add(slideLabel);
 
   const label = makeTextSprite(
-    clearance === 'jump' ? '⬆ JUMP' : '⬇ SLIDE',
-    clearance === 'jump' ? '#FFE082' : '#E1BEE7',
-    clearance === 'jump' ? 'rgba(80,40,0,0.85)' : 'rgba(50,10,70,0.85)'
+    jumpSafe ? '⬆ JUMP!' : '⬇ SLIDE!',
+    '#FFFFFF',
+    jumpSafe ? 'rgba(46,125,50,0.95)' : 'rgba(46,125,50,0.95)'
   );
-  label.position.set(0, clearance === 'jump' ? 1.15 : 2.05, 0.5);
-  label.scale.set(2.8, 0.72, 1);
+  label.position.set(0, 1.68, 0.55);
+  label.scale.set(3.0, 0.75, 1);
   group.add(label);
 
   scene.add(group);
-  return { kind: 'vault', mesh: group, z, clearance, resolved: false, barMesh, beamMesh, label };
+  return { kind: 'vault', mesh: group, z, clearance, resolved: false, topPanel, bottomPanel, barrierMesh, label };
 }
 
 export function animateVaultGate(v: VaultGateEntity, time: number): void {
@@ -445,12 +439,29 @@ export function animateVaultGate(v: VaultGateEntity, time: number): void {
     v.mesh.visible = false;
     return;
   }
-  const pulse = 1 + Math.sin(time * 4) * 0.012;
-  v.barMesh.scale.y = pulse;
-  if (v.beamMesh) {
-    (v.beamMesh.material as THREE.MeshBasicMaterial).opacity = 0.22 + Math.sin(time * 5) * 0.1;
-  }
-  v.label.position.y = (v.clearance === 'jump' ? 1.15 : 2.05) + Math.sin(time * 3) * 0.04;
+  const pulse = 1 + Math.sin(time * 3.5) * 0.018;
+  v.topPanel.scale.set(pulse, pulse, pulse);
+  v.bottomPanel.scale.set(pulse, pulse, pulse);
+  v.label.position.y = 1.68 + Math.sin(time * 3) * 0.04;
+}
+
+function makeVaultGateBand(parent: THREE.Group, y: number, safe: boolean): THREE.Group {
+  const panel = new THREE.Group();
+  panel.position.set(0, y, 0.08);
+
+  const tex = makeGatePanelTexture(safe);
+  const mesh = new THREE.Mesh(
+    new THREE.PlaneGeometry(7.55, 1.72),
+    new THREE.MeshBasicMaterial({
+      map: tex,
+      transparent: true,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+    })
+  );
+  panel.add(mesh);
+  parent.add(panel);
+  return panel;
 }
 
 function makeSimpleGatePanel(x: number, safe: boolean) {
