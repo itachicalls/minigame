@@ -21,9 +21,16 @@ document.addEventListener('gestureend', blockZoom);
 document.addEventListener(
   'touchstart',
   (e) => {
-    if (e.touches.length > 1) e.preventDefault();
+    if (e.touches.length > 1) {
+      e.preventDefault();
+      return;
+    }
+    if (document.body.classList.contains('game-active')) {
+      const t = e.target as HTMLElement;
+      if (!t.closest('button, .touch-steer')) e.preventDefault();
+    }
   },
-  { passive: false }
+  { passive: false, capture: true }
 );
 
 let lastTouchEnd = 0;
@@ -33,6 +40,7 @@ document.addEventListener(
     const now = Date.now();
     if (now - lastTouchEnd <= 320) e.preventDefault();
     lastTouchEnd = now;
+    if (IS_MOBILE) window.scrollTo(0, 0);
   },
   { passive: false }
 );

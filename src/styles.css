@@ -11,6 +11,7 @@ html, body {
   inset: 0;
   width: 100%;
   height: 100%;
+  height: -webkit-fill-available;
   overflow: hidden;
   font-family: 'Nunito', 'Segoe UI', system-ui, sans-serif;
   background: #0a0a12;
@@ -23,22 +24,38 @@ html, body {
   -webkit-text-size-adjust: 100%;
 }
 
+body.game-active {
+  touch-action: none;
+  overscroll-behavior: none;
+}
+
 #app {
   position: fixed;
-  inset: 0;
+  top: 0;
+  left: 0;
   width: 100%;
   height: 100%;
+  height: 100dvh;
+  height: 100svh;
   overflow: hidden;
 }
 #game-canvas {
   display: block;
   position: absolute;
-  inset: 0;
+  top: 0;
+  left: 0;
   width: 100%;
   height: 100%;
   touch-action: none;
+  -webkit-touch-callout: none;
 }
-#ui-root { position: absolute; inset: 0; pointer-events: none; touch-action: none; }
+#ui-root {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  touch-action: none;
+  overflow: hidden;
+}
 #ui-root > * { pointer-events: auto; }
 
 .screen-blur {

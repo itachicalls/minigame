@@ -59,7 +59,7 @@ import {
 } from './Spawner';
 import { ParticleSystem, CameraShake } from './Effects';
 import { getPixelRatio, IS_MOBILE, isNearZ, ENABLE_SHADOWS, ENABLE_ANTIALIAS, ENABLE_TONE_MAPPING } from './platform';
-import { getViewportMetrics, onViewportChange } from './viewport';
+import { getViewportMetrics, onViewportChange, applyMobileViewportLock } from './viewport';
 import { getCharacter } from '../data/characters';
 import { getLevel } from '../data/levels';
 import { getDistrict } from '../data/districts';
@@ -159,6 +159,11 @@ export class Game {
   private timeScale = 1;
   private autoFireEnabled = false;
   private viewportCleanup: (() => void) | null = null;
+  private lastVpW = 0;
+  private lastVpH = 0;
+  private lastVpScale = 1;
+  private lastVpOffTop = 0;
+  private lastVpOffLeft = 0;
   private forkHint = '';
   private powerUpLabel = '';
   private deathReason: DeathReason = 'stolen';
@@ -301,6 +306,11 @@ export class Game {
     this.touchSteerLeft = false;
     this.touchSteerRight = false;
     this.autoFireEnabled = IS_MOBILE && this.save.mobileAutoFire;
+    this.lastVpW = 0;
+    this.lastVpH = 0;
+    this.lastVpScale = 1;
+    this.lastVpOffTop = 0;
+    this.lastVpOffLeft = 0;
 
     this.applyUpgrades();
     const diff = level.difficulty;
@@ -365,6 +375,11 @@ export class Game {
     }
 
     this.player.setPackageGlow(0.5, level.district);
+    if (IS_MOBILE) {
+      applyMobileViewportLock();
+      this.resize();
+      requestAnimationFrame(() => this.resize());
+    }
     this.loop();
   }
 
@@ -407,6 +422,15 @@ export class Game {
       }
     });
     this.canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+    if (IS_MOBILE) {
+      this.canvas.addEventListener(
+        'touchstart',
+        (e) => {
+          if (e.touches.length === 1) e.preventDefault();
+        },
+        { passive: false }
+      );
+    }
   }
 
   jump(): void {
@@ -512,6 +536,7 @@ export class Game {
 
   private update(dt: number): void {
     if (this.dead) return;
+    this.syncViewport();
 
     if (this.slowMoTimer > 0) {
       this.slowMoTimer -= dt;
@@ -1025,9 +1050,46 @@ export class Game {
     this.renderer.render(this.scene, this.camera);
   }
 
+  private syncViewport(): void {
+    if (!IS_MOBILE || !this.running) return;
+    const m = getViewportMetrics();
+    if (
+      m.width === this.lastVpW &&
+      m.height === this.lastVpH &&
+      m.scale === this.lastVpScale &&
+      m.offsetTop === this.lastVpOffTop &&
+      m.offsetLeft === this.lastVpOffLeft
+    ) {
+      return;
+    }
+    this.lastVpW = m.width;
+    this.lastVpH = m.height;
+    this.lastVpScale = m.scale;
+    this.lastVpOffTop = m.offsetTop;
+    this.lastVpOffLeft = m.offsetLeft;
+    applyMobileViewportLock();
+    this.renderer.setPixelRatio(getPixelRatio());
+    this.renderer.setSize(m.width, m.height, false);
+    this.camera.aspect = m.width / m.height;
+    this.camera.updateProjectionMatrix();
+  }
+
   resize(): void {
-    const w = this.canvas.clientWidth || getViewportMetrics().width;
-    const h = this.canvas.clientHeight || getViewportMetrics().height;
+    let w: number;
+    let h: number;
+    if (IS_MOBILE) {
+      const m = applyMobileViewportLock();
+      w = m.width;
+      h = m.height;
+      this.lastVpW = w;
+      this.lastVpH = h;
+      this.lastVpScale = m.scale;
+      this.canvas.style.width = `${w}px`;
+      this.canvas.style.height = `${h}px`;
+    } else {
+      w = this.canvas.clientWidth || window.innerWidth;
+      h = this.canvas.clientHeight || window.innerHeight;
+    }
     if (w < 1 || h < 1) return;
     this.renderer.setPixelRatio(getPixelRatio());
     this.renderer.setSize(w, h, false);

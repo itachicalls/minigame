@@ -10,6 +10,7 @@ import type { MailmanId } from '../types';
 import { menuBackdropHtml } from './menuBackdrop';
 import { mountCharacterPreview } from './CharacterPreview';
 import { IS_MOBILE } from '../game/platform';
+import { setGameActive } from '../game/viewport';
 
 const DISTRICT_MOOD: Record<number, string> = {
   1: 'district-sunny',
@@ -63,6 +64,7 @@ export class UIManager {
 
   showMenu(): void {
     this.screen = 'menu';
+    setGameActive(false);
     this.game?.stop();
     this.setCanvasVisible(false);
     this.clear();
@@ -303,6 +305,7 @@ export class UIManager {
 
   private startGame(levelId: string): void {
     this.screen = 'game';
+    setGameActive(true);
     this.hudCache = {};
     this.setCanvasVisible(true);
     this.clear();
