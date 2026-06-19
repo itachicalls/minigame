@@ -66,6 +66,7 @@ export class World {
   private rimLight!: THREE.DirectionalLight;
   private accentLight: THREE.PointLight | null = null;
   private roadNightLight: THREE.PointLight | null = null;
+  private roadFillLight: THREE.PointLight | null = null;
   private skyPhase = -1;
   private skyTick = 0;
   private skyNight = 0;
@@ -640,6 +641,11 @@ export class World {
     if (this.roadNightLight) {
       this.roadNightLight.intensity = fx * (IS_MOBILE ? 0.45 : 0.58);
       this.roadNightLight.color.set(lerpColor('#FFE082', '#FFF3E0', 1 - fx * 0.25));
+    }
+    if (this.roadFillLight) {
+      const dayFill = IS_MOBILE ? 0.52 : 0.44;
+      this.roadFillLight.intensity = dayFill * (1 - lightNight * 0.22) + fx * 0.1;
+      this.roadFillLight.color.set(lerpColor('#FFF8F0', '#E8F4FF', lightNight * 0.35));
     }
     if (this.roadMesh) {
       const rm = this.roadMesh.material as THREE.MeshStandardMaterial;
@@ -1812,6 +1818,10 @@ export class World {
     this.roadNightLight = new THREE.PointLight('#FFE082', 0, IS_MOBILE ? 24 : 30, 2);
     this.roadNightLight.name = 'roadNight';
     this.scene.add(this.roadNightLight);
+
+    this.roadFillLight = new THREE.PointLight('#FFF8F0', IS_MOBILE ? 0.48 : 0.4, IS_MOBILE ? 32 : 40, 1.6);
+    this.roadFillLight.name = 'roadFill';
+    this.scene.add(this.roadFillLight);
   }
 
   setPlayerZ(z: number, dt: number): void {
@@ -1846,6 +1856,9 @@ export class World {
     }
     if (this.roadNightLight) {
       this.roadNightLight.position.set(playerX, 5.5, playerZ + 3);
+    }
+    if (this.roadFillLight) {
+      this.roadFillLight.position.set(playerX * 0.15, IS_MOBILE ? 7.5 : 8.5, playerZ + 12);
     }
   }
 
@@ -2022,6 +2035,7 @@ export class World {
     }
     this.accentLight = null;
     this.roadNightLight = null;
+    this.roadFillLight = null;
   }
 }
 

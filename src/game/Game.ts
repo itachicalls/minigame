@@ -4,24 +4,23 @@ import { Player } from './Player';
 import { Convoy } from './Convoy';
 import {
   createRouteGate,
-  createVaultGate,
   createDropoff,
   disposeEntity,
   animateGate,
-  animateVaultGate,
   animateDropoff,
   type GateEntity,
-  type VaultGateEntity,
   type DropoffEntity,
 } from './Gates';
 import { createCoinLine, updateCoins, tryCollectCoin, disposeCoins, type CoinEntity } from './Coins';
 import {
-  createObstacle,
-  updateObstacles,
-  disposeObstacles,
-  obstacleClearHeight,
-  type ObstacleEntity,
-} from './Obstacles';
+  createElectricBar,
+  updateElectricBars,
+  disposeElectricBars,
+  playerInBarLanes,
+  getActiveBarX,
+  LANE_HALF,
+  type ElectricBarEntity,
+} from './ElectricBars';
 import {
   createPackagePickups,
   updatePackagePickups,
@@ -55,10 +54,9 @@ import {
   type PowerUpEntity,
 } from './PowerUps';
 import {
-  pickObstacleLanes,
   pickRandomLane,
-  pickObstacleForLevel,
-  obstacleSpacing,
+  pickBarSpawn,
+  barSpacing,
   runnerSpacing,
   powerUpSpacing,
   packageSpacing,
@@ -123,11 +121,10 @@ export class Game {
   private save: SaveData;
 
   private routeGates: GateEntity[] = [];
-  private vaultGates: VaultGateEntity[] = [];
+  private electricBars: ElectricBarEntity[] = [];
   private runners: RunnerEntity[] = [];
   private coins: CoinEntity[] = [];
   private packagePickups: PackagePickup[] = [];
-  private obstacles: ObstacleEntity[] = [];
   private powerUps: PowerUpEntity[] = [];
   private throws: ThrownPackage[] = [];
   private dropoff!: DropoffEntity;
@@ -180,8 +177,7 @@ export class Game {
   private powerUpLabel = '';
   private deathReason: DeathReason = 'stolen';
 
-  private nextObstacleZ = 35;
-  private nextVaultZ = 52;
+  private nextBarZ = 35;
   private nextRunnerZ = 50;
   private nextPowerUpZ = 80;
   private nextPackageZ = 25;
@@ -415,8 +411,7 @@ export class Game {
     this.levelLength = lastSeg.kind === 'dropoff' ? lastSeg.z + 20 : 800;
     this.spawnHorizon = this.levelLength - 30;
 
-    this.nextObstacleZ = 38;
-    this.nextVaultZ = 78 + Math.floor(Math.random() * 24);
+    this.nextBarZ = 38;
     this.nextRunnerZ = 38 + Math.random() * 12;
     this.nextPowerUpZ = 28 + Math.random() * 12;
     this.nextPackageZ = 20;
@@ -438,7 +433,14 @@ export class Game {
       if (seg.kind === 'gate') {
         this.routeGates.push(createRouteGate(this.scene, seg.z, seg.safe));
       } else if (seg.kind === 'vault') {
-        this.vaultGates.push(createVaultGate(this.scene, seg.z, seg.clearance));
+        this.electricBars.push(
+          createElectricBar(this.scene, seg.z, {
+            span: 'full',
+            clearance: seg.clearance,
+            motion: 'static',
+            district: level.district,
+          })
+        );
       } else if (seg.kind === 'dropoff') {
         this.dropoff = createDropoff(this.scene, seg.z);
       }
@@ -778,11 +780,8 @@ export class Game {
     for (const g of this.routeGates) {
       if (!g.resolved && isNearZ(g.z, pz, IS_MOBILE ? 42 : 55)) animateGate(g, this.gameTime);
     }
-    for (const v of this.vaultGates) {
-      if (!v.resolved && isNearZ(v.z, pz, IS_MOBILE ? 42 : 55)) animateVaultGate(v, this.gameTime);
-    }
     if (this.dropoff && isNearZ(this.dropoff.z, pz, IS_MOBILE ? 42 : 55)) animateDropoff(this.dropoff, this.gameTime);
-    updateObstacles(this.obstacles, this.gameTime, pz, this.world.getGameplayNight());
+    updateElectricBars(this.electricBars, this.gameTime, pz, () => sfx.telegraphWarn());
 
     const collectRadius = this.pickupRadius + (this.magnetTimer > 0 ? 2.8 : 0);
     const coinGain = tryCollectCoin(this.coins, this.player.x, this.player.z, collectRadius);
@@ -819,11 +818,10 @@ export class Game {
     }
 
     this.checkThrowHits();
-    this.checkObstacles();
+    this.checkElectricBars();
     this.checkNearMisses();
     this.checkRunners();
     this.checkRouteGates();
-    this.checkVaultGates();
     this.checkDropoff();
     this.checkLose();
 
@@ -914,27 +912,20 @@ export class Game {
     const ahead = this.player.z + spawnAhead;
     const maxPerFrame = 1;
 
-    const maxObstacles = IS_MOBILE ? 7 : 12;
+    const maxBars = IS_MOBILE ? 6 : 10;
     const maxRunners = IS_MOBILE ? 9 : 12;
     const maxPowerUps = IS_MOBILE ? 6 : 10;
 
-    let obsN = 0;
-    while (this.nextObstacleZ < ahead && this.nextObstacleZ < this.spawnHorizon && obsN < maxPerFrame) {
-      if (this.obstacles.length >= maxObstacles) break;
-      const lanes = pickObstacleLanes();
-      const laneLimit = IS_MOBILE ? 1 : lanes.length;
-      for (let i = 0; i < laneLimit; i++) {
-        this.obstacles.push(createObstacle(this.scene, pickObstacleForLevel(this.level.id), lanes[i], this.nextObstacleZ));
-      }
-      this.nextObstacleZ += obstacleSpacing(diff) + Math.random() * 10;
-      obsN++;
-    }
-
-    const maxVaults = IS_MOBILE ? 3 : 5;
-    if (this.nextVaultZ < ahead && this.nextVaultZ < this.spawnHorizon && this.vaultGates.filter((v) => !v.resolved).length < maxVaults) {
-      const clearance = this.vaultGates.length % 2 === 0 ? 'jump' : 'slide';
-      this.vaultGates.push(createVaultGate(this.scene, this.nextVaultZ, clearance));
-      this.nextVaultZ += 58 + Math.random() * 32 + diff * 0.35;
+    let barN = 0;
+    while (this.nextBarZ < ahead && this.nextBarZ < this.spawnHorizon && barN < maxPerFrame) {
+      const active = this.electricBars.filter((b) => !b.resolved).length;
+      if (active >= maxBars) break;
+      const spec = pickBarSpawn(diff);
+      this.electricBars.push(
+        createElectricBar(this.scene, this.nextBarZ, { ...spec, district: this.level.district })
+      );
+      this.nextBarZ += barSpacing(diff) + Math.random() * 8;
+      barN++;
     }
 
     let runN = 0;
@@ -1001,14 +992,15 @@ export class Game {
     const pz = this.player.z;
     const r2 = this.quakeRadius * this.quakeRadius;
 
-    for (const obs of this.obstacles) {
-      if (obs.hit) continue;
-      const dx = obs.x - px;
-      const dz = obs.z - pz;
+    for (const b of this.electricBars) {
+      if (b.resolved) continue;
+      const bx = b.span === 'full' ? 0 : b.x;
+      const dx = bx - px;
+      const dz = b.z - pz;
       if (dx * dx + dz * dz <= r2) {
-        obs.hit = true;
-        obs.mesh.visible = false;
-        this.particles.hitBurst(obs.x, obs.z);
+        b.resolved = true;
+        b.mesh.visible = false;
+        this.particles.hitBurst(bx, b.z);
       }
     }
 
@@ -1034,10 +1026,10 @@ export class Game {
   private cullBehind(): void {
     const minZ = this.player.z - 25;
 
-    const obsCull = this.obstacles.filter((o) => o.z < minZ);
-    if (obsCull.length) {
-      disposeObstacles(obsCull, this.scene);
-      this.obstacles = this.obstacles.filter((o) => o.z >= minZ);
+    const barCull = this.electricBars.filter((b) => b.z < minZ);
+    if (barCull.length) {
+      disposeElectricBars(barCull, this.scene);
+      this.electricBars = this.electricBars.filter((b) => b.z >= minZ);
     }
 
     const runnerCull = this.runners.filter((r) => r.z < minZ);
@@ -1248,33 +1240,27 @@ export class Game {
   }
 
   private checkNearMisses(): void {
-    for (const obs of this.obstacles) {
-      if (obs.hit) continue;
-      const dz = this.player.z - obs.z;
-      if (dz < 0.8 || dz > 2.2) continue;
-      const dx = Math.abs(this.player.x - obs.x);
-      const edgeLo = obs.radius - 0.05;
-      const edgeHi = obs.radius + 0.45;
-      if (dx >= edgeLo && dx <= edgeHi) {
-        if (this.player.isJumping || this.player.isSliding || this.dashActive) {
-          if (!obs.mesh.userData.styleAwarded) {
-            obs.mesh.userData.styleAwarded = true;
-            this.run.coins += 5;
-            sfx.nearMiss();
-            this.convoy.reactTurbo();
-            this.styleStreak++;
-            this.styleStreakTimer = 4;
-            if (this.styleStreak >= 3) {
-              this.styleStreak = 0;
-              this.magnetTimer = 5;
-              this.cb.onToast('🔗 STYLE MAGNET!');
-              sfx.honk();
-            } else if (this.styleStreak === 2) {
-              this.cb.onToast('✨ Style ×2 — one more!');
-            } else {
-              this.cb.onToast('✨ STYLE +5');
-            }
-          }
+    for (const b of this.electricBars) {
+      if (b.resolved || b.span === 'full' || b.styleAwarded) continue;
+      const dz = this.player.z - b.z;
+      if (dz < 0.8 || dz > 2.5) continue;
+      if (playerInBarLanes(this.player.x, b)) continue;
+      if (this.player.isJumping || this.player.isSliding || this.dashActive) {
+        b.styleAwarded = true;
+        this.run.coins += 5;
+        sfx.nearMiss();
+        this.convoy.reactTurbo();
+        this.styleStreak++;
+        this.styleStreakTimer = 4;
+        if (this.styleStreak >= 3) {
+          this.styleStreak = 0;
+          this.magnetTimer = 5;
+          this.cb.onToast('🔗 STYLE MAGNET!');
+          sfx.honk();
+        } else if (this.styleStreak === 2) {
+          this.cb.onToast('✨ Style ×2 — one more!');
+        } else {
+          this.cb.onToast('✨ STYLE +5');
         }
       }
     }
@@ -1341,27 +1327,77 @@ export class Game {
     }
   }
 
-  private checkObstacles(): void {
-    if (this.isProtected()) return;
+  private checkElectricBars(): void {
+    this.vaultHint = '';
+    const gateDepth = 2.4;
+    const gateStart = -1.5;
 
-    for (const obs of this.obstacles) {
-      if (obs.hit) continue;
-      const dz = Math.abs(this.player.z - obs.z);
-      if (dz > 1.4) continue;
-      const dx = Math.abs(this.player.x - obs.x);
-      if (dx > obs.radius + 0.3) continue;
-      if (this.player.jumpY > obstacleClearHeight(obs.kind) + 0.08) continue;
-      if (this.dashActive) {
-        obs.hit = true;
-        obs.mesh.visible = false;
-        this.particles.hitBurst(obs.x, obs.z);
+    for (const b of this.electricBars) {
+      if (b.resolved) continue;
+
+      const dist = b.z - this.player.z;
+      if (dist > 0 && dist < 30) {
+        const action = b.clearance === 'jump' ? '⬆ JUMP' : '⬇ SLIDE';
+        if (b.motion === 'sweep') this.vaultHint = `⚡ SWEEP — ${action}`;
+        else if (b.span === 'full') this.vaultHint = `${action} BAR`;
+        else this.vaultHint = `${action} · dodge lane`;
+      }
+
+      const jumping = this.player.jumpY > 0.1 || this.player.isJumping;
+      const sliding = this.player.isSliding;
+      const cleared = b.clearance === 'jump' ? jumping : sliding;
+      const wrongAction = (b.clearance === 'jump' && sliding) || (b.clearance === 'slide' && jumping);
+
+      if (b.motion === 'sweep') {
+        if (this.player.z < b.z - 0.5 || this.player.z > b.z + 2.2) continue;
+        if (!b.sweepStarted) continue;
+        const barX = getActiveBarX(b);
+        if (Math.abs(this.player.x - barX) > LANE_HALF + 0.25) continue;
+        if (this.isProtected()) continue;
+        if (this.dashActive) {
+          b.resolved = true;
+          continue;
+        }
+        if (!b.penalized && (wrongAction || !cleared)) {
+          b.penalized = true;
+          sfx.vaultBuzz();
+          this.takeVaultMiss();
+        }
+        if (this.player.z > b.z + 1.6) {
+          b.resolved = true;
+          if (cleared && !b.penalized) {
+            this.run.coins += 5;
+            sfx.vaultBuzz();
+          }
+        }
         continue;
       }
 
-      obs.hit = true;
-      obs.mesh.visible = false;
-      this.takeHit('obstacle');
-      return;
+      if (!playerInBarLanes(this.player.x, b)) continue;
+
+      const inZone = this.player.z >= b.z + gateStart && this.player.z <= b.z + gateDepth;
+      if (!inZone) continue;
+
+      if (this.dashActive && this.player.z >= b.z - 0.3) {
+        b.resolved = true;
+        this.particles.hitBurst(b.x, b.z);
+        continue;
+      }
+
+      const atBarrier = this.player.z >= b.z - 0.15;
+      if (!this.isProtected() && !b.penalized && atBarrier && (wrongAction || !cleared)) {
+        b.penalized = true;
+        sfx.vaultBuzz();
+        this.takeVaultMiss();
+      }
+
+      if (this.player.z > b.z + gateDepth - 0.35) {
+        b.resolved = true;
+        if (cleared && !b.penalized) {
+          this.run.coins += b.span === 'full' ? 4 : 3;
+          sfx.vaultBuzz();
+        }
+      }
     }
   }
 
@@ -1439,40 +1475,6 @@ export class Game {
       this.die('stolen');
     } else {
       this.emitHud(this.level.timeLimit - this.elapsed);
-    }
-  }
-
-  private checkVaultGates(): void {
-    const gateDepth = 2.4;
-    const gateStart = -1.5;
-
-    for (const v of this.vaultGates) {
-      if (v.resolved) continue;
-
-      if (Math.abs(this.player.x) > 3.6) continue;
-
-      const inZone = this.player.z >= v.z + gateStart && this.player.z <= v.z + gateDepth;
-      if (!inZone) continue;
-
-      const jumping = this.player.jumpY > 0.1 || this.player.isJumping;
-      const sliding = this.player.isSliding;
-      const cleared = v.clearance === 'jump' ? jumping : sliding;
-      const wrongAction = (v.clearance === 'jump' && sliding) || (v.clearance === 'slide' && jumping);
-      const atBarrier = this.player.z >= v.z - 0.15;
-
-      if (!v.penalized && atBarrier && (wrongAction || !cleared)) {
-        v.penalized = true;
-        sfx.vaultBuzz();
-        this.takeVaultMiss();
-      }
-
-      if (this.player.z > v.z + gateDepth - 0.35) {
-        v.resolved = true;
-        if (cleared && !v.penalized) {
-          this.run.coins += 4;
-          sfx.vaultBuzz();
-        }
-      }
     }
   }
 
@@ -1611,22 +1613,20 @@ export class Game {
 
   private cleanup(): void {
     for (const g of this.routeGates) disposeEntity(g.mesh, this.scene);
-    for (const v of this.vaultGates) disposeEntity(v.mesh, this.scene);
+    disposeElectricBars(this.electricBars, this.scene);
     disposeRunners(this.runners, this.scene);
     disposeCoins(this.coins, this.scene);
     disposePickups(this.packagePickups, this.scene);
     disposePowerUps(this.powerUps, this.scene);
-    disposeObstacles(this.obstacles, this.scene);
     this.throws = updateThrows(this.throws, 999, this.scene);
     if (this.dropoff) disposeEntity(this.dropoff.mesh, this.scene);
     this.particles.clear();
     this.routeGates = [];
-    this.vaultGates = [];
+    this.electricBars = [];
     this.runners = [];
     this.coins = [];
     this.packagePickups = [];
     this.powerUps = [];
-    this.obstacles = [];
     if (this.player) this.player.dispose(this.scene);
     if (this.convoy) this.convoy.dispose();
     if (this.ufoHazard) {

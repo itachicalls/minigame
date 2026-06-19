@@ -25,7 +25,7 @@ function level(
 }
 
 export const LEVELS: LevelDef[] = [
-  level('1-1', 1, 'First Delivery', 'Jump obstacles · pick GREEN fork · click to shoot · collect 📦 for heavy shots', 750, [
+  level('1-1', 1, 'First Delivery', 'Jump/slide electric bars · pick GREEN fork · shoot aliens · collect 📦', 750, [
     { z: 160, safe: 'left' },
     { z: 360, safe: 'right' },
     { z: 580, safe: 'left' },

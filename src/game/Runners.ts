@@ -36,9 +36,9 @@ const TIER: Record<
     label: string;
   }
 > = {
-  grunt: { scale: 0.82, emissive: '#76FF03', speed: 10, hp: 1, label: 'Grunt' },
-  raider: { scale: 0.92, emissive: '#FFC107', speed: 14, hp: 2, label: 'Raider' },
-  stalker: { scale: 1.05, emissive: '#FF1744', speed: 19, hp: 3, label: 'Stalker' },
+  grunt: { scale: 1.02, emissive: '#76FF03', speed: 10, hp: 1, label: 'Grunt' },
+  raider: { scale: 1.14, emissive: '#FFC107', speed: 14, hp: 2, label: 'Raider' },
+  stalker: { scale: 1.28, emissive: '#FF1744', speed: 19, hp: 3, label: 'Stalker' },
 };
 
 const RUNNER_TIER: Record<RunnerTier, ChibiTier> = {
@@ -62,7 +62,7 @@ export function createRunner(
   const t = TIER[tier];
   const elite = !!opts.elite;
   const isBoss = !!opts.boss;
-  const scaleMul = isBoss ? 1.35 : elite ? 1.12 : 1;
+  const scaleMul = isBoss ? 1.5 : elite ? 1.22 : 1;
   const chibiTier = RUNNER_TIER[tier];
   const species = pickSpeciesForTier(chibiTier);
   const group = new THREE.Group();
@@ -255,7 +255,7 @@ export function pickRunnerTier(difficulty: number): RunnerTier {
 }
 
 export function runnerTouchRadius(tier: RunnerTier): number {
-  return tier === 'stalker' ? 1.1 : tier === 'raider' ? 0.95 : 0.85;
+  return tier === 'stalker' ? 1.18 : tier === 'raider' ? 1.05 : 0.95;
 }
 
 export function isHeadshot(projectileY: number, r: RunnerEntity): boolean {

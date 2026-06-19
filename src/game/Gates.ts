@@ -3,6 +3,7 @@ import type { BlockerKind, GateOption } from '../types';
 import { addMesh, mat } from './ModelUtils';
 import { getHexPadTexture } from './WorldTextures';
 import { IS_MOBILE } from './platform';
+import { createElectricBar, type ElectricBarEntity } from './ElectricBars';
 
 export type GateEntity = {
   kind: 'route';
@@ -371,164 +372,21 @@ export function createVaultGate(
   z: number,
   clearance: 'jump' | 'slide'
 ): VaultGateEntity {
-  const group = new THREE.Group();
-  group.position.set(0, 0, z);
+  const bar = createElectricBar(scene, z, { span: 'full', clearance, motion: 'static' });
+  return toVaultEntity(bar);
+}
 
-  const isJump = clearance === 'jump';
-  const barY = isJump ? 0.48 : 1.82;
-  const poleH = isJump ? 1.28 : 2.72;
-  const seg = IS_MOBILE ? 8 : 12;
-
-  const wireEmissive = isJump ? '#FFD54F' : '#E040FB';
-  const glowColor = isJump ? '#80DEEA' : '#EA80FC';
-  const sparkA = isJump ? '#FFEB3B' : '#E1BEE7';
-  const sparkB = isJump ? '#B2FF59' : '#B388FF';
-  const arcColor = isJump ? '#CCFF90' : '#CE93D8';
-
-  addMesh(group, new THREE.BoxGeometry(0.14, 0.05, 0.55), mat('#37474F', { metalness: 0.4 }), -2.4, 0.025, 0.18);
-  addMesh(group, new THREE.CylinderGeometry(0.05, 0.06, 0.45, 6), mat('#455A64', { metalness: 0.55 }), -2.55, 0.04, -0.12);
-  addMesh(group, new THREE.BoxGeometry(0.1, 0.04, 0.35), mat('#263238'), 2.1, 0.02, -0.08);
-
-  for (const [x, lean] of [[-3.7, 0], [3.7, -0.12]] as const) {
-    const pole = addMesh(
-      group,
-      new THREE.CylinderGeometry(0.085, 0.105, poleH, seg),
-      mat('#6D4C41', { roughness: 0.92 }),
-      x,
-      poleH / 2,
-      0
-    );
-    pole.rotation.z = lean;
-    addMesh(
-      group,
-      new THREE.BoxGeometry(0.48, 0.06, 0.06),
-      mat('#546E7A', { metalness: 0.45, roughness: 0.5 }),
-      x + lean * 0.35,
-      barY + 0.02,
-      0.04
-    );
-    addMesh(
-      group,
-      new THREE.CylinderGeometry(0.055, 0.07, 0.12, 6),
-      mat('#ECEFF1', { roughness: 0.45 }),
-      x + lean * 0.4,
-      barY,
-      0.06
-    );
-  }
-
-  const cableSpan = 7.35;
-  const cableSegs = IS_MOBILE ? 4 : 6;
-  for (let i = 0; i < cableSegs; i++) {
-    const t0 = i / cableSegs;
-    const t1 = (i + 1) / cableSegs;
-    const x0 = -cableSpan / 2 + t0 * cableSpan;
-    const x1 = -cableSpan / 2 + t1 * cableSpan;
-    const y0 = barY - 0.1 * Math.sin(t0 * Math.PI);
-    const y1 = barY - 0.1 * Math.sin(t1 * Math.PI);
-    const mx = (x0 + x1) / 2;
-    const my = (y0 + y1) / 2;
-    const len = Math.hypot(x1 - x0, y1 - y0);
-    const angle = Math.atan2(y1 - y0, x1 - x0);
-    const segMesh = addMesh(
-      group,
-      new THREE.CylinderGeometry(0.055, 0.055, len, 8),
-      mat('#37474F', { metalness: 0.65, roughness: 0.4 }),
-      mx,
-      my,
-      0
-    );
-    segMesh.rotation.z = angle - Math.PI / 2;
-  }
-
-  const barrierMesh = addMesh(
-    group,
-    new THREE.CylinderGeometry(isJump ? 0.07 : 0.085, isJump ? 0.07 : 0.085, cableSpan, seg),
-    mat('#263238', { metalness: 0.75, roughness: 0.35, emissive: wireEmissive, emissiveIntensity: isJump ? 0.15 : 0.35 }),
-    0,
-    barY - 0.05,
-    0
-  );
-  barrierMesh.rotation.z = Math.PI / 2;
-
-  const glowMesh = addMesh(
-    group,
-    new THREE.CylinderGeometry(isJump ? 0.11 : 0.14, isJump ? 0.11 : 0.14, cableSpan - 0.05, seg),
-    new THREE.MeshBasicMaterial({
-      color: glowColor,
-      transparent: true,
-      opacity: isJump ? 0.32 : 0.48,
-      blending: THREE.AdditiveBlending,
-      depthWrite: false,
-    }),
-    0,
-    barY - 0.05,
-    0,
-    false
-  );
-  glowMesh.rotation.z = Math.PI / 2;
-
-  const sparks: THREE.Mesh[] = [];
-  const sparkCount = IS_MOBILE ? 5 : 8;
-  for (let i = 0; i < sparkCount; i++) {
-    const t = i / (sparkCount - 1);
-    const sx = -cableSpan / 2 + 0.4 + t * (cableSpan - 0.8);
-    const sag = barY - 0.1 * Math.sin(t * Math.PI) - 0.05;
-    const spark = addMesh(
-      group,
-      new THREE.SphereGeometry(0.035 + (i % 2) * 0.015, 6, 6),
-      new THREE.MeshBasicMaterial({
-        color: i % 3 === 0 ? sparkA : sparkB,
-        transparent: true,
-        opacity: isJump ? 0.65 : 0.78,
-        blending: THREE.AdditiveBlending,
-        depthWrite: false,
-      }),
-      sx,
-      sag + (i % 2) * 0.06,
-      (i % 3 - 1) * 0.08,
-      false
-    );
-    spark.userData.isSpark = true;
-    spark.userData.sparkPhase = i;
-    spark.userData.baseY = spark.position.y;
-    sparks.push(spark);
-  }
-
-  for (let i = 0; i < (IS_MOBILE ? 2 : 4); i++) {
-    const arc = addMesh(
-      group,
-      new THREE.PlaneGeometry(0.32, 0.06),
-      new THREE.MeshBasicMaterial({
-        color: arcColor,
-        transparent: true,
-        opacity: isJump ? 0.4 : 0.55,
-        side: THREE.DoubleSide,
-        blending: THREE.AdditiveBlending,
-        depthWrite: false,
-      }),
-      -2.2 + i * 1.45,
-      barY - 0.14 - (i % 2) * 0.05,
-      0.1,
-      false
-    );
-    arc.userData.isArc = true;
-    arc.userData.sparkPhase = i + 0.5;
-    sparks.push(arc);
-  }
-
-
-  scene.add(group);
+function toVaultEntity(bar: ElectricBarEntity): VaultGateEntity {
   return {
     kind: 'vault',
-    mesh: group,
-    z,
-    clearance,
-    resolved: false,
-    penalized: false,
-    barrierMesh,
-    glowMesh,
-    sparks,
+    mesh: bar.mesh,
+    z: bar.z,
+    clearance: bar.clearance,
+    resolved: bar.resolved,
+    penalized: bar.penalized,
+    barrierMesh: bar.barrierMesh,
+    glowMesh: bar.glowMesh,
+    sparks: bar.sparks,
   };
 }
 
