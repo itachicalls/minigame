@@ -2,7 +2,7 @@ import { SaveManager } from '../save/SaveManager';
 import { Game, type HudData } from '../game/Game';
 import { LEVELS } from '../data/levels';
 import { DISTRICTS } from '../data/districts';
-import { SHOP_ITEMS, itemCost } from '../data/shop';
+import { SHOP_ITEMS, SHOP_SECTIONS, itemCost } from '../data/shop';
 import { nextLevelId } from '../data/levels';
 import type { GameResult } from '../types';
 import { menuBackdropHtml } from './menuBackdrop';
@@ -155,28 +155,27 @@ export class UIManager {
     this.setCanvasVisible(false);
     this.clear();
     const s = this.save.get();
-    let inner = `
-      <div class="screen shop-screen screen-glass">
-        <div class="screen-header">
-          <h1>Courier Shop</h1>
-          <div class="stat-pill gold"><span>🪙</span> ${s.coins}</div>
-        </div>
-        <p class="shop-hint">Equip 2 turrets + 1 ability before runs</p>
-        <div class="shop-grid">`;
 
-    for (const item of SHOP_ITEMS) {
-      const lvl = this.save.getPurchaseLevel(item.id);
-      const maxed = lvl >= item.maxLevel;
-      const cost = maxed ? 0 : itemCost(item, lvl);
-      const canBuy = !maxed && s.coins >= cost;
-      const isTurret = item.category === 'turret';
-      const isAbility = item.category === 'ability';
-      const equipped =
-        (isTurret && s.equippedTurrets.includes(item.id as typeof s.equippedTurrets[0])) ||
-        (isAbility && s.equippedAbility === item.id);
-      const catIcon = item.category === 'turret' ? '🔫' : item.category === 'ability' ? '⚡' : '⬆';
+    let gridHtml = '';
+    for (const section of SHOP_SECTIONS) {
+      const items = SHOP_ITEMS.filter((i) => i.category === section.key);
+      if (!items.length) continue;
+      gridHtml += `<h2 class="shop-section-title">${section.label} <span class="shop-section-hint">${section.hint}</span></h2>`;
+      gridHtml += '<div class="shop-grid">';
 
-      inner += `
+      for (const item of items) {
+        const lvl = this.save.getPurchaseLevel(item.id);
+        const maxed = lvl >= item.maxLevel;
+        const cost = maxed ? 0 : itemCost(item, lvl);
+        const canBuy = !maxed && s.coins >= cost;
+        const isGear = item.category === 'gear';
+        const isAbility = item.category === 'ability';
+        const equipped =
+          (isGear && s.equippedTurrets.includes(item.id as typeof s.equippedTurrets[0])) ||
+          (isAbility && s.equippedAbility === item.id);
+        const catIcon = isGear ? '🎯' : isAbility ? '⚡' : '💎';
+
+        gridHtml += `
         <div class="shop-item ${equipped ? 'equipped' : ''}">
           <div class="shop-item-head">
             <span class="shop-cat">${catIcon}</span>
@@ -186,14 +185,26 @@ export class UIManager {
           <div class="meta">
             <span class="price">${maxed ? '✓ MAX' : `🪙 ${cost}`}</span>
             <div class="shop-actions">
-              ${isTurret || isAbility ? `<button class="btn btn-small btn-secondary equip-btn" data-id="${item.id}">${equipped ? '✓ Equipped' : 'Equip'}</button>` : ''}
+              ${isGear || isAbility ? `<button class="btn btn-small btn-secondary equip-btn" data-id="${item.id}">${equipped ? '✓ Equipped' : 'Equip'}</button>` : ''}
               <button class="btn btn-small btn-primary buy-btn" data-id="${item.id}" ${canBuy ? '' : 'disabled'}>${maxed ? 'Maxed' : 'Buy'}</button>
             </div>
           </div>
         </div>`;
+      }
+      gridHtml += '</div>';
     }
 
-    inner += `</div><button class="btn btn-secondary" id="btn-back">← Back</button></div>`;
+    const inner = `
+      <div class="screen shop-screen screen-glass">
+        <div class="shop-topbar">
+          <button class="btn btn-secondary shop-back-btn" id="btn-back" type="button">← Menu</button>
+          <h1 class="shop-title">Runner Shop</h1>
+          <div class="stat-pill gold shop-coins"><span>🪙</span> ${s.coins}</div>
+        </div>
+        <p class="shop-hint">Buy upgrades, then equip gear & an ability before your next run.</p>
+        <div class="shop-scroll">${gridHtml}</div>
+      </div>`;
+
     const screen = this.wrapScreen(inner);
     this.root.appendChild(screen);
 
@@ -215,9 +226,9 @@ export class UIManager {
       btn.addEventListener('click', () => {
         const id = (btn as HTMLElement).dataset.id!;
         const item = SHOP_ITEMS.find((i) => i.id === id)!;
-        if (item.category === 'turret') {
+        if (item.category === 'gear') {
           if (this.save.getPurchaseLevel(id) <= 0) {
-            alert('Buy this turret first!');
+            alert('Buy this gear first!');
             return;
           }
           this.save.equipTurret(id);
@@ -264,6 +275,7 @@ export class UIManager {
         </div>
 
         <div class="fork-hint hidden" id="fork-hint"></div>
+        <div class="screen-blur hidden" id="screen-blur"></div>
 
         <div class="tap-hint" id="tap-hint">Jump · Shoot · Swerve at forks!</div>
 
@@ -400,6 +412,10 @@ export class UIManager {
     if (d.invincible !== this.hudCache.invincible) {
       if (d.invincible) heartsEl?.classList.add('invincible-glow');
       else document.getElementById('hud-hearts')?.classList.remove('invincible-glow');
+    }
+
+    if (d.screenBlur !== this.hudCache.screenBlur) {
+      document.getElementById('screen-blur')?.classList.toggle('hidden', !d.screenBlur);
     }
 
     const forkHint = document.getElementById('fork-hint');

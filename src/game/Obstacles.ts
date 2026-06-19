@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { addMesh, mat, disposeObject3D } from './ModelUtils';
-import { isNearZ } from './platform';
+import { IS_MOBILE, isNearZ } from './platform';
 
 export type ObstacleKind = 'barricade' | 'pod' | 'cones' | 'debris';
 
@@ -116,6 +116,37 @@ export function createObstacle(scene: THREE.Scene, type: ObstacleKind, x: number
 
   scene.add(group);
   const radius = type === 'barricade' ? 1.15 : type === 'cones' ? 0.85 : 0.75;
+
+  const hazardRing = addMesh(
+    group,
+    new THREE.RingGeometry(radius * 0.75, radius * 0.95, IS_MOBILE ? 10 : 16),
+    new THREE.MeshBasicMaterial({
+      color: type === 'pod' ? '#76FF03' : '#FF1744',
+      transparent: true,
+      opacity: 0.32,
+      side: THREE.DoubleSide,
+    }),
+    0,
+    0.035,
+    0,
+    false
+  );
+  hazardRing.rotation.x = -Math.PI / 2;
+
+  addMesh(
+    group,
+    new THREE.CylinderGeometry(0.04, 0.04, 0.55, 6),
+    new THREE.MeshBasicMaterial({
+      color: type === 'pod' ? '#76FF03' : '#FF9800',
+      transparent: true,
+      opacity: 0.55,
+    }),
+    0,
+    0.28,
+    0,
+    false
+  );
+
   return { mesh: group, x, z, kind: type, radius, hit: false };
 }
 

@@ -87,6 +87,7 @@ export type HudData = {
   forkHint?: string;
   powerUpLabel?: string;
   invincible: boolean;
+  screenBlur?: boolean;
 };
 
 export class Game {
@@ -138,10 +139,13 @@ export class Game {
   private packageDamage = 8;
   private packageRate = 0.38;
   private startPackages = 0;
+  private pickupRadius = 2.2;
 
   private invincibleTimer = 0;
   private slowMoTimer = 0;
   private fastShotTimer = 0;
+  private turboTimer = 0;
+  private blurTimer = 0;
   private timeScale = 1;
   private forkHint = '';
   private powerUpLabel = '';
@@ -188,7 +192,7 @@ export class Game {
     this.bindKeyboard();
     this.bindPointer();
     window.addEventListener('resize', () => this.resize());
-    if (window.visualViewport) {
+    if (window.visualViewport && !IS_MOBILE) {
       window.visualViewport.addEventListener('resize', () => this.resize());
     }
     this.resize();
@@ -262,6 +266,8 @@ export class Game {
     this.invincibleTimer = 0;
     this.slowMoTimer = 0;
     this.fastShotTimer = 0;
+    this.turboTimer = 0;
+    this.blurTimer = 0;
     this.timeScale = 1;
     this.touchSteerLeft = false;
     this.touchSteerRight = false;
@@ -291,6 +297,13 @@ export class Game {
       this.mailGunDamage += 1 + (this.save.purchases['box-cannon'] ?? 0);
       this.packageDamage += 2 + (this.save.purchases['box-cannon'] ?? 0);
     }
+    if (this.save.equippedTurrets.includes('helper-beacon')) {
+      const lv = this.save.purchases['helper-beacon'] ?? 0;
+      this.mailGunDamage += lv * 2;
+      this.packageDamage += lv * 3;
+    }
+
+    this.pickupRadius = 2.2 + (this.save.purchases['coin-magnet'] ?? 0) * 0.4;
 
     const lastSeg = level.segments[level.segments.length - 1];
     this.levelLength = lastSeg.kind === 'dropoff' ? lastSeg.z + 20 : 800;
@@ -298,7 +311,7 @@ export class Game {
 
     this.nextObstacleZ = 30;
     this.nextRunnerZ = 45 + Math.random() * 20;
-    this.nextPowerUpZ = 70 + Math.random() * 30;
+    this.nextPowerUpZ = 28 + Math.random() * 12;
     this.nextPackageZ = 20;
     this.nextCoinZ = 35;
 
@@ -306,6 +319,7 @@ export class Game {
     this.world.build(theme, this.levelLength);
 
     this.player = new Player(this.scene);
+    this.player.setJumpPower(12 + (this.save.purchases['jump-boots'] ?? 0) * 1.4);
     this.player.z = 0;
     this.player.targetX = 0;
     this.player.x = 0;
@@ -325,7 +339,7 @@ export class Game {
   }
 
   private applyUpgrades(): void {
-    this.startPackages = 0;
+    this.startPackages = (this.save.purchases['starter-pouches'] ?? 0) * 2;
     const ability = this.save.equippedAbility;
     if (ability === 'smoke-bomb') this.abilityMaxCd = 12 - (this.save.purchases['smoke-bomb'] ?? 0) * 2;
     else if (ability === 'rally-horn') this.abilityMaxCd = 15 - (this.save.purchases['rally-horn'] ?? 0) * 3;
@@ -461,12 +475,24 @@ export class Game {
     if (this.invincibleTimer > 0) this.invincibleTimer -= dt;
     if (this.hurtIFrames > 0) this.hurtIFrames -= dt;
     if (this.fastShotTimer > 0) this.fastShotTimer -= dt;
+    if (this.turboTimer > 0) {
+      this.turboTimer -= dt;
+      if (this.turboTimer <= 0) this.run.speed = this.run.baseSpeed;
+    }
+    if (this.blurTimer > 0) {
+      this.blurTimer -= dt;
+      if (this.blurTimer <= 0) this.player.setGhostMode(false);
+    }
     this.powerUpLabel =
       this.invincibleTimer > 0
         ? '🛡 SHIELD'
         : this.hurtIFrames > 0
           ? '💥 HIT!'
-          : this.fastShotTimer > 0
+          : this.turboTimer > 0
+            ? '🔥 OVERDRIVE'
+            : this.blurTimer > 0
+              ? '👻 GHOSTED'
+              : this.fastShotTimer > 0
           ? '⚡ FAST'
           : this.slowMoTimer > 0
             ? '🐢 SLOW-MO'
@@ -523,19 +549,19 @@ export class Game {
     if (this.dropoff && isNearZ(this.dropoff.z, pz, 90)) animateDropoff(this.dropoff, this.gameTime);
     updateObstacles(this.obstacles, this.gameTime, pz);
 
-    const coinGain = tryCollectCoin(this.coins, this.player.x, this.player.z, 2.2);
+    const coinGain = tryCollectCoin(this.coins, this.player.x, this.player.z, this.pickupRadius);
     if (coinGain) {
       this.run.coins += coinGain;
       this.particles.collectBurst(this.player.x, this.player.z);
     }
 
-    const pkgGain = tryCollectPackages(this.packagePickups, this.player.x, this.player.z, 2.2);
+    const pkgGain = tryCollectPackages(this.packagePickups, this.player.x, this.player.z, this.pickupRadius);
     if (pkgGain) {
       this.run.packages = Math.min(this.run.maxPackages, this.run.packages + pkgGain);
       this.particles.collectBurst(this.player.x, this.player.z);
     }
 
-    const pu = tryCollectPowerUp(this.powerUps, this.player.x, this.player.z, 2.2);
+    const pu = tryCollectPowerUp(this.powerUps, this.player.x, this.player.z, this.pickupRadius);
     if (pu) {
       this.applyPowerUp(pu);
       this.particles.collectBurst(this.player.x, this.player.z);
@@ -573,6 +599,21 @@ export class Game {
     if (kind === 'slowmo') this.slowMoTimer = 3.5;
     else if (kind === 'fastshot') this.fastShotTimer = 5;
     else if (kind === 'invincible') this.invincibleTimer = 4;
+    else if (kind === 'health') {
+      if (this.run.integrity < this.run.maxIntegrity) {
+        this.run.integrity++;
+      } else {
+        this.run.coins += 15;
+        this.cb.onToast('Full health — +15 coins!');
+      }
+    } else if (kind === 'turbo') {
+      this.turboTimer = 4;
+      this.run.speed = this.run.baseSpeed * 1.55;
+      this.shake.shake(0.35);
+    } else if (kind === 'blur') {
+      this.blurTimer = 3.5;
+      this.player.setGhostMode(true);
+    }
     this.emitHud(this.level.timeLimit - this.elapsed);
   }
 
@@ -592,6 +633,7 @@ export class Game {
       forkHint: this.forkHint || undefined,
       powerUpLabel: this.powerUpLabel || undefined,
       invincible: this.invincibleTimer > 0,
+      screenBlur: this.blurTimer > 0,
     });
   }
 
@@ -599,45 +641,49 @@ export class Game {
     const diff = this.level.difficulty;
     const spawnAhead = IS_MOBILE ? 85 : 115;
     const ahead = this.player.z + spawnAhead;
-    let budget = IS_MOBILE ? 2 : 5;
+    const maxPerFrame = IS_MOBILE ? 1 : 2;
 
     const maxObstacles = IS_MOBILE ? 18 : 28;
     const maxRunners = IS_MOBILE ? 6 : 10;
+    const maxPowerUps = IS_MOBILE ? 8 : 14;
 
-    while (this.nextObstacleZ < ahead && this.nextObstacleZ < this.spawnHorizon && budget > 0) {
+    let obsN = 0;
+    while (this.nextObstacleZ < ahead && this.nextObstacleZ < this.spawnHorizon && obsN < maxPerFrame) {
       if (this.obstacles.length >= maxObstacles) break;
       for (const lane of pickObstacleLanes()) {
         this.obstacles.push(createObstacle(this.scene, pickRandomObstacle(), lane, this.nextObstacleZ));
       }
       this.nextObstacleZ += obstacleSpacing(diff) + Math.random() * 6;
-      budget--;
+      obsN++;
     }
 
-    while (this.nextRunnerZ < ahead && this.nextRunnerZ < this.spawnHorizon && budget > 0) {
+    let runN = 0;
+    while (this.nextRunnerZ < ahead && this.nextRunnerZ < this.spawnHorizon && runN < maxPerFrame) {
       if (this.runners.length >= maxRunners) break;
       const tier = pickRunnerTier(diff);
       this.runners.push(createRunner(this.scene, tier, pickRandomLane(), this.nextRunnerZ));
       this.nextRunnerZ += runnerSpacing(diff) + Math.random() * 12;
-      budget--;
+      runN++;
     }
 
-    while (this.nextPowerUpZ < ahead && this.nextPowerUpZ < this.spawnHorizon && budget > 0) {
+    if (this.nextPowerUpZ < ahead && this.nextPowerUpZ < this.spawnHorizon && this.powerUps.length < maxPowerUps) {
       this.powerUps.push(createPowerUp(this.scene, randomPowerUpKind(), pickRandomLane(), this.nextPowerUpZ));
       this.nextPowerUpZ += powerUpSpacing();
-      budget--;
     }
 
-    while (this.nextPackageZ < ahead && this.nextPackageZ < this.spawnHorizon && budget > 0) {
+    let pkgN = 0;
+    while (this.nextPackageZ < ahead && this.nextPackageZ < this.spawnHorizon && pkgN < maxPerFrame) {
       this.packagePickups.push(...createPackagePickups(this.scene, this.nextPackageZ, 1, 0));
       this.nextPackageZ += packageSpacing();
-      budget--;
+      pkgN++;
     }
 
-    while (this.nextCoinZ < ahead && this.nextCoinZ < this.spawnHorizon && budget > 0) {
+    let coinN = 0;
+    while (this.nextCoinZ < ahead && this.nextCoinZ < this.spawnHorizon && coinN < maxPerFrame) {
       const coinCount = IS_MOBILE ? 2 + Math.floor(Math.random() * 2) : 3 + Math.floor(Math.random() * 3);
       this.coins.push(...createCoinLine(this.scene, this.nextCoinZ, coinCount, 3.5));
       this.nextCoinZ += IS_MOBILE ? 28 + Math.random() * 20 : 22 + Math.random() * 18;
-      budget--;
+      coinN++;
     }
   }
 
@@ -773,9 +819,8 @@ export class Game {
       if (gate.resolved) continue;
 
       const dist = gate.z - this.player.z;
-      if (dist > 0 && dist < 28) {
-        this.forkHint =
-          gate.safeSide === 'left' ? '⬅ SWERVE LEFT — RIGHT KILLS YOU!' : 'SWERVE RIGHT ➡ — LEFT KILLS YOU!';
+      if (dist > 0 && dist < 32) {
+        this.forkHint = '⚠ FORK AHEAD — SWERVE!';
       }
 
       if (this.player.z >= gate.z - 3 && this.player.z <= gate.z + 2) {
@@ -869,9 +914,8 @@ export class Game {
   }
 
   resize(): void {
-    const vp = window.visualViewport;
-    const w = vp?.width ?? window.innerWidth;
-    const h = vp?.height ?? window.innerHeight;
+    const w = window.innerWidth;
+    const h = window.innerHeight;
     this.renderer.setPixelRatio(getPixelRatio());
     this.renderer.setSize(w, h, false);
     this.camera.aspect = w / h;

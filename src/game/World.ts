@@ -93,6 +93,24 @@ export class World {
       this.rootMeshes.push(curb);
     }
 
+    // Sidewalk tile accents along the route
+    for (let z = 20; z < levelLength; z += 14) {
+      for (const x of [-5.2, 5.2]) {
+        const tile = addMesh(
+          this.scene,
+          new THREE.PlaneGeometry(3.2, 1.2),
+          mat('#90A4AE', { roughness: 0.9 }),
+          x,
+          0.018,
+          z,
+          false
+        );
+        tile.rotation.x = -Math.PI / 2;
+        tile.userData.isTerrain = true;
+        this.rootMeshes.push(tile);
+      }
+    }
+
     const rng = seededRandom(theme.id * 1337 + levelLength);
 
     // Clouds
@@ -184,23 +202,41 @@ export class World {
     c.width = 256;
     c.height = 256;
     const ctx = c.getContext('2d')!;
-    ctx.fillStyle = '#37474F';
+    ctx.fillStyle = '#2E3A40';
     ctx.fillRect(0, 0, 256, 256);
     for (let y = 0; y < 256; y += 4) {
-      ctx.fillStyle = y % 8 === 0 ? '#455A64' : '#37474F';
+      ctx.fillStyle = y % 8 === 0 ? '#3D4F57' : '#2E3A40';
       ctx.fillRect(0, y, 256, 4);
     }
+    // Lane dividers (5-lane road)
+    ctx.strokeStyle = 'rgba(255,255,255,0.22)';
+    ctx.lineWidth = 2;
+    ctx.setLineDash([10, 14]);
+    for (const lx of [51, 102, 128, 154, 205]) {
+      ctx.beginPath();
+      ctx.moveTo(lx, 0);
+      ctx.lineTo(lx, 256);
+      ctx.stroke();
+    }
+    ctx.setLineDash([]);
+    // Center caution stripe
     ctx.strokeStyle = '#FFEB3B';
-    ctx.lineWidth = 4;
-    ctx.setLineDash([18, 14]);
+    ctx.lineWidth = 3;
+    ctx.setLineDash([16, 12]);
     ctx.beginPath();
     ctx.moveTo(128, 0);
     ctx.lineTo(128, 256);
     ctx.stroke();
     ctx.setLineDash([]);
-    ctx.fillStyle = '#FFF';
-    ctx.fillRect(8, 0, 10, 256);
-    ctx.fillRect(238, 0, 10, 256);
+    // Edge lines
+    ctx.fillStyle = 'rgba(255,255,255,0.85)';
+    ctx.fillRect(6, 0, 8, 256);
+    ctx.fillRect(242, 0, 8, 256);
+    // Wear patches
+    ctx.fillStyle = 'rgba(0,0,0,0.08)';
+    for (let i = 0; i < 8; i++) {
+      ctx.fillRect(20 + i * 28, (i * 37) % 220, 18, 10);
+    }
     return new THREE.CanvasTexture(c);
   }
 

@@ -39,7 +39,7 @@ export function runnerSpacing(difficulty: number): number {
 }
 
 export function powerUpSpacing(): number {
-  return 55 + Math.random() * 35;
+  return 32 + Math.random() * 22;
 }
 
 export function packageSpacing(): number {

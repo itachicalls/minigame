@@ -57,11 +57,11 @@ export type LevelDef = {
 
 export type TurretId = 'pepper-drone' | 'box-cannon' | 'helper-beacon';
 export type AbilityId = 'smoke-bomb' | 'rally-horn' | 'dash';
-export type UpgradeId = 'convoy-cap' | 'start-convoy' | 'package-armor' | 'coin-magnet';
+export type UpgradeId = 'package-armor' | 'coin-magnet' | 'jump-boots' | 'starter-pouches';
 
 export type ShopItem = {
   id: TurretId | AbilityId | UpgradeId;
-  category: 'turret' | 'ability' | 'upgrade';
+  category: 'gear' | 'ability' | 'upgrade';
   name: string;
   description: string;
   baseCost: number;

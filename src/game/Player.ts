@@ -9,7 +9,9 @@ export class Player {
   hurtFlash = 0;
   runPhase = 0;
   jumpY = 0;
+  private ghostMode = false;
   private jumpVel = 0;
+  private jumpPower = 12;
   isJumping = false;
   private readonly baseBodyY = 0.28;
 
@@ -265,12 +267,30 @@ export class Player {
   jump(): boolean {
     if (this.isJumping) return false;
     this.isJumping = true;
-    this.jumpVel = 12;
+    this.jumpVel = this.jumpPower;
     return true;
+  }
+
+  setJumpPower(power: number): void {
+    this.jumpPower = power;
   }
 
   flashHurt(): void {
     this.hurtFlash = 0.45;
+  }
+
+  setGhostMode(on: boolean): void {
+    this.ghostMode = on;
+    const opacity = on ? 0.22 : 1;
+    this.mesh.traverse((c) => {
+      if (c instanceof THREE.Mesh) {
+        const mats = Array.isArray(c.material) ? c.material : [c.material];
+        for (const m of mats) {
+          m.transparent = on || m.transparent;
+          m.opacity = opacity;
+        }
+      }
+    });
   }
 
   throwAnim(): void {
