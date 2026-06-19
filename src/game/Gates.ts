@@ -57,9 +57,9 @@ export type VaultGateEntity = {
   clearance: 'jump' | 'slide';
   resolved: boolean;
   penalized: boolean;
-  topPanel: THREE.Group;
-  bottomPanel: THREE.Group;
   barrierMesh: THREE.Mesh;
+  glowMesh: THREE.Mesh;
+  sparks: THREE.Mesh[];
 };
 
 const BLOCKER_THEME: Record<BlockerKind, { accent: string; light: string; door: string; labelBg: string }> = {
@@ -364,13 +364,8 @@ export function createDropoff(scene: THREE.Scene, z: number): DropoffEntity {
   return { kind: 'dropoff', mesh: group, z, reached: false, platform, rings, beam, holoSign };
 }
 
-const VAULT_BAND_H = 2.45;
-const VAULT_BOTTOM_Y = 0.62;
-const VAULT_TOP_Y = 3.12;
-const VAULT_DIVIDER_Y = 1.82;
-const VAULT_GATE_DEPTH = 1.35;
 
-/** Stacked green/red gate bands — jump clears the lower band, slide clears the upper band */
+/** Downed power line — low bar to jump, high bar to slide under */
 export function createVaultGate(
   scene: THREE.Scene,
   z: number,
@@ -379,56 +374,147 @@ export function createVaultGate(
   const group = new THREE.Group();
   group.position.set(0, 0, z);
 
-  const jumpSafe = clearance === 'jump';
-  const slideSafe = clearance === 'slide';
+  const isJump = clearance === 'jump';
+  const barY = isJump ? 0.5 : 1.52;
+  const poleH = isJump ? 1.28 : 2.38;
+  const seg = IS_MOBILE ? 8 : 12;
 
-  for (const x of [-3.85, 3.85]) {
+  addMesh(group, new THREE.BoxGeometry(0.14, 0.05, 0.55), mat('#37474F', { metalness: 0.4 }), -2.4, 0.025, 0.18);
+  addMesh(group, new THREE.CylinderGeometry(0.05, 0.06, 0.45, 6), mat('#455A64', { metalness: 0.55 }), -2.55, 0.04, -0.12);
+  addMesh(group, new THREE.BoxGeometry(0.1, 0.04, 0.35), mat('#263238'), 2.1, 0.02, -0.08);
+
+  for (const [x, lean] of [[-3.7, 0], [3.7, -0.12]] as const) {
+    const pole = addMesh(
+      group,
+      new THREE.CylinderGeometry(0.085, 0.105, poleH, seg),
+      mat('#6D4C41', { roughness: 0.92 }),
+      x,
+      poleH / 2,
+      0
+    );
+    pole.rotation.z = lean;
     addMesh(
       group,
-      new THREE.BoxGeometry(0.16, 4.15, VAULT_GATE_DEPTH),
-      mat(FRAME_COLOR, { roughness: 0.35, metalness: 0.15 }),
-      x,
-      2.05,
-      0.05
+      new THREE.BoxGeometry(0.48, 0.06, 0.06),
+      mat('#546E7A', { metalness: 0.45, roughness: 0.5 }),
+      x + lean * 0.35,
+      barY + 0.02,
+      0.04
     );
-    addMesh(group, new THREE.BoxGeometry(0.22, 0.14, 0.22), mat('#37474F', { metalness: 0.5, roughness: 0.4 }), x, 0.07, 0.05);
-    addMesh(group, new THREE.BoxGeometry(0.22, 0.14, 0.22), mat('#37474F', { metalness: 0.5, roughness: 0.4 }), x, 4.08, 0.05);
+    addMesh(
+      group,
+      new THREE.CylinderGeometry(0.055, 0.07, 0.12, 6),
+      mat('#ECEFF1', { roughness: 0.45 }),
+      x + lean * 0.4,
+      barY,
+      0.06
+    );
   }
 
-  const topPanel = makeVaultGateBand(group, VAULT_TOP_Y, slideSafe);
-  const bottomPanel = makeVaultGateBand(group, VAULT_BOTTOM_Y, jumpSafe);
+  const cableSpan = 7.35;
+  const cableSegs = IS_MOBILE ? 4 : 6;
+  for (let i = 0; i < cableSegs; i++) {
+    const t0 = i / cableSegs;
+    const t1 = (i + 1) / cableSegs;
+    const x0 = -cableSpan / 2 + t0 * cableSpan;
+    const x1 = -cableSpan / 2 + t1 * cableSpan;
+    const y0 = barY - 0.1 * Math.sin(t0 * Math.PI);
+    const y1 = barY - 0.1 * Math.sin(t1 * Math.PI);
+    const mx = (x0 + x1) / 2;
+    const my = (y0 + y1) / 2;
+    const len = Math.hypot(x1 - x0, y1 - y0);
+    const angle = Math.atan2(y1 - y0, x1 - x0);
+    const segMesh = addMesh(
+      group,
+      new THREE.CylinderGeometry(0.055, 0.055, len, 8),
+      mat('#37474F', { metalness: 0.65, roughness: 0.4 }),
+      mx,
+      my,
+      0
+    );
+    segMesh.rotation.z = angle - Math.PI / 2;
+  }
 
-  addMesh(
-    group,
-    new THREE.BoxGeometry(7.9, 0.1, VAULT_GATE_DEPTH),
-    mat('#37474F', { metalness: 0.45, roughness: 0.5 }),
-    0,
-    VAULT_DIVIDER_Y,
-    0.06
-  );
-
-  const barrierY = jumpSafe ? 0.48 : 1.58;
   const barrierMesh = addMesh(
     group,
-    new THREE.BoxGeometry(7.9, 0.2, VAULT_GATE_DEPTH * 0.85),
-    mat(jumpSafe ? '#F9A825' : '#7B1FA2', {
-      emissive: jumpSafe ? '#F57C00' : '#6A1B9A',
-      emissiveIntensity: 0.15,
-      roughness: 0.5,
-    }),
+    new THREE.CylinderGeometry(0.07, 0.07, cableSpan, seg),
+    mat('#263238', { metalness: 0.75, roughness: 0.35, emissive: '#FFD54F', emissiveIntensity: 0.12 }),
     0,
-    barrierY,
+    barY - 0.05,
     0
   );
-  for (let i = 0; i < 8; i++) {
-    addMesh(
-      barrierMesh,
-      new THREE.BoxGeometry(0.12, 0.22, 0.04),
-      mat(i % 2 === 0 ? '#F9A825' : '#212121', { roughness: 0.7 }),
-      -3.4 + i * 0.95,
-      0,
-      0.16
+  barrierMesh.rotation.z = Math.PI / 2;
+
+  const glowMesh = addMesh(
+    group,
+    new THREE.CylinderGeometry(0.11, 0.11, cableSpan - 0.05, seg),
+    new THREE.MeshBasicMaterial({
+      color: '#80DEEA',
+      transparent: true,
+      opacity: 0.32,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    }),
+    0,
+    barY - 0.05,
+    0,
+    false
+  );
+  glowMesh.rotation.z = Math.PI / 2;
+
+  const sparks: THREE.Mesh[] = [];
+  const sparkCount = IS_MOBILE ? 5 : 8;
+  for (let i = 0; i < sparkCount; i++) {
+    const t = i / (sparkCount - 1);
+    const sx = -cableSpan / 2 + 0.4 + t * (cableSpan - 0.8);
+    const sag = barY - 0.1 * Math.sin(t * Math.PI) - 0.05;
+    const spark = addMesh(
+      group,
+      new THREE.SphereGeometry(0.035 + (i % 2) * 0.015, 6, 6),
+      new THREE.MeshBasicMaterial({
+        color: i % 3 === 0 ? '#FFEB3B' : '#B2FF59',
+        transparent: true,
+        opacity: 0.65,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      }),
+      sx,
+      sag + (i % 2) * 0.06,
+      (i % 3 - 1) * 0.08,
+      false
     );
+    spark.userData.isSpark = true;
+    spark.userData.sparkPhase = i;
+    spark.userData.baseY = spark.position.y;
+    sparks.push(spark);
+  }
+
+  for (let i = 0; i < (IS_MOBILE ? 2 : 4); i++) {
+    const arc = addMesh(
+      group,
+      new THREE.PlaneGeometry(0.32, 0.06),
+      new THREE.MeshBasicMaterial({
+        color: '#CCFF90',
+        transparent: true,
+        opacity: 0.4,
+        side: THREE.DoubleSide,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      }),
+      -2.2 + i * 1.45,
+      barY - 0.14 - (i % 2) * 0.05,
+      0.1,
+      false
+    );
+    arc.userData.isArc = true;
+    arc.userData.sparkPhase = i + 0.5;
+    sparks.push(arc);
+  }
+
+  if (!IS_MOBILE) {
+    const light = new THREE.PointLight('#80DEEA', 0.45, 6);
+    light.position.set(0, barY, 0.5);
+    group.add(light);
   }
 
   scene.add(group);
@@ -439,9 +525,9 @@ export function createVaultGate(
     clearance,
     resolved: false,
     penalized: false,
-    topPanel,
-    bottomPanel,
     barrierMesh,
+    glowMesh,
+    sparks,
   };
 }
 
@@ -450,31 +536,26 @@ export function animateVaultGate(v: VaultGateEntity, time: number): void {
     v.mesh.visible = false;
     return;
   }
-  const pulse = 1 + Math.sin(time * 3.5) * 0.018;
-  v.topPanel.scale.set(pulse, pulse, pulse);
-  v.bottomPanel.scale.set(pulse, pulse, pulse);
-}
 
-function makeVaultGateBand(parent: THREE.Group, y: number, safe: boolean): THREE.Group {
-  const panel = new THREE.Group();
-  panel.position.set(0, y, 0.08);
+  const flicker = 0.22 + Math.sin(time * 14 + v.z) * 0.1 + Math.sin(time * 27) * 0.06;
+  const glowMat = v.glowMesh.material as THREE.MeshBasicMaterial;
+  glowMat.opacity = flicker + 0.12;
 
-  const tex = makeGatePanelTexture(safe);
-  const bandMat = new THREE.MeshBasicMaterial({
-    map: tex,
-    transparent: true,
-    side: THREE.DoubleSide,
-    depthWrite: false,
-  });
+  const barMat = v.barrierMesh.material as THREE.MeshStandardMaterial;
+  barMat.emissiveIntensity = 0.1 + Math.abs(Math.sin(time * 11 + v.z * 0.3)) * 0.35;
 
-  for (const dz of [-0.42, 0, 0.42]) {
-    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(7.55, VAULT_BAND_H), bandMat);
-    mesh.position.z = dz;
-    panel.add(mesh);
+  for (const s of v.sparks) {
+    const phase = (s.userData.sparkPhase as number) ?? 0;
+    const m = s.material as THREE.MeshBasicMaterial;
+    if (s.userData.isArc) {
+      m.opacity = 0.08 + Math.abs(Math.sin(time * 9 + phase * 1.7)) * 0.42;
+      s.scale.x = 0.7 + Math.abs(Math.sin(time * 13 + phase)) * 0.55;
+      s.rotation.z = Math.sin(time * 6 + phase) * 0.35;
+    } else {
+      m.opacity = 0.2 + Math.abs(Math.sin(time * 16 + phase * 2.1)) * 0.55;
+      s.position.y = (s.userData.baseY as number) + Math.sin(time * 20 + phase) * 0.012;
+    }
   }
-
-  parent.add(panel);
-  return panel;
 }
 
 function makeSimpleGatePanel(x: number, safe: boolean) {

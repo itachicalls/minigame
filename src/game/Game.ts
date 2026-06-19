@@ -1043,17 +1043,11 @@ export class Game {
   }
 
   private checkVaultGates(): void {
-    this.vaultHint = '';
     const gateDepth = 2.4;
     const gateStart = -1.5;
 
     for (const v of this.vaultGates) {
       if (v.resolved) continue;
-
-      const dist = v.z - this.player.z;
-      if (dist > 0 && dist < 18) {
-        this.vaultHint = v.clearance === 'jump' ? '⬆ Jump' : '⬇ Slide';
-      }
 
       if (Math.abs(this.player.x) > 3.6) continue;
 
