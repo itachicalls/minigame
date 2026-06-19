@@ -22,7 +22,7 @@ export class RenderPipeline {
       new THREE.Vector2(1, 1),
       IS_MOBILE ? 0.34 : 0.38,
       IS_MOBILE ? 0.32 : 0.36,
-      IS_MOBILE ? 0.85 : 0.78
+      IS_MOBILE ? 0.72 : 0.68
     );
     this.composer.addPass(this.bloomPass);
 

@@ -67,6 +67,7 @@ export class World {
   private accentLight: THREE.PointLight | null = null;
   private roadNightLight: THREE.PointLight | null = null;
   private roadFillLight: THREE.PointLight | null = null;
+  private gameplayRimLight: THREE.DirectionalLight | null = null;
   private skyPhase = -1;
   private skyTick = 0;
   private skyNight = 0;
@@ -87,17 +88,18 @@ export class World {
     this.districtId = theme.id;
     this.setupLighting(theme, levelLength);
     this.buildSky(theme);
-    const fogDensity = (IS_MOBILE ? 0.009 : 0.011) * (200 / theme.fogFar);
+    const fogDensity = (IS_MOBILE ? 0.007 : 0.009) * (200 / theme.fogFar);
     this.scene.fog = new THREE.FogExp2(theme.fog, fogDensity);
 
     // Grass field
     const grassTex = this.makeGrassTexture(theme);
     grassTex.wrapS = grassTex.wrapT = THREE.RepeatWrapping;
     grassTex.repeat.set(6, (levelLength + 140) / 10);
+    const grassColor = new THREE.Color(theme.ground).multiplyScalar(IS_MOBILE ? 0.62 : 0.68);
     const grass = addMesh(
       this.scene,
       new THREE.PlaneGeometry(50, levelLength + 140),
-      new THREE.MeshStandardMaterial({ map: grassTex, color: theme.ground, roughness: 1 }),
+      new THREE.MeshStandardMaterial({ map: grassTex, color: grassColor, roughness: 1 }),
       0,
       0,
       levelLength / 2,
@@ -117,7 +119,7 @@ export class World {
       const walk = addMesh(
         this.scene,
         new THREE.PlaneGeometry(3.5, levelLength + 140),
-        new THREE.MeshStandardMaterial({ map: walkTex, roughness: 0.95 }),
+        new THREE.MeshStandardMaterial({ map: walkTex, color: '#8a959e', roughness: 0.96 }),
         x,
         0,
         levelLength / 2,
@@ -148,10 +150,10 @@ export class World {
         map: this.roadTexture,
         emissiveMap: this.roadEmissiveTex,
         emissive: this.roadAccent.primary,
-        emissiveIntensity: 0.1,
-        color: IS_MOBILE ? '#d4dae0' : '#c8cdd2',
-        roughness: 0.76,
-        metalness: 0.1,
+        emissiveIntensity: IS_MOBILE ? 0.18 : 0.14,
+        color: IS_MOBILE ? '#e8edf2' : '#dfe6ec',
+        roughness: 0.68,
+        metalness: 0.14,
         envMapIntensity: 0.45,
       }),
       0,
@@ -173,7 +175,7 @@ export class World {
         map: this.roadGlowTex,
         color: this.roadAccent.primary,
         transparent: true,
-        opacity: IS_MOBILE ? 0.18 : 0.26,
+        opacity: IS_MOBILE ? 0.26 : 0.32,
         blending: THREE.AdditiveBlending,
         depthWrite: false,
       }),
@@ -242,7 +244,7 @@ export class World {
       const curb = addMesh(
         this.scene,
         new THREE.BoxGeometry(0.35, 0.18, levelLength + 140),
-        new THREE.MeshStandardMaterial({ map: curbTex, color: '#CFD8DC', roughness: 0.92, metalness: 0.04 }),
+        new THREE.MeshStandardMaterial({ map: curbTex, color: '#ECEFF1', roughness: 0.82, metalness: 0.12, emissive: '#FFFFFF', emissiveIntensity: 0.04 }),
         x,
         0.09,
         levelLength / 2,
@@ -594,7 +596,7 @@ export class World {
     const fx = nightEffectStrength(night);
     let lightNight = lightingNightBlend(night);
     if (IS_MOBILE) lightNight *= 0.72;
-    const mobileLift = IS_MOBILE ? 1.22 : 1;
+    const mobileLift = IS_MOBILE ? 1.32 : 1.12;
     const fogColor = lerpColor(theme.fog, theme.id >= 6 ? '#120828' : '#050510', lightNight);
     if (this.scene.fog instanceof THREE.FogExp2) {
       this.scene.fog.color.set(fogColor);
@@ -610,30 +612,33 @@ export class World {
     if (this.hemiLight) {
       this.hemiLight.color.copy(hemiSky);
       this.hemiLight.groundColor.copy(hemiGround);
-      this.hemiLight.intensity = theme.ambient * 0.78 * (1 - lightNight * 0.45) * mobileLift;
+      this.hemiLight.intensity = theme.ambient * 0.92 * (1 - lightNight * 0.38) * mobileLift;
     }
     if (this.ambientLight) {
-      const amb = new THREE.Color('#ffffff').lerp(new THREE.Color('#8899cc'), lightNight * 0.65);
+      const amb = new THREE.Color('#ffffff').lerp(new THREE.Color('#8899cc'), lightNight * 0.55);
       this.ambientLight.color.copy(amb);
       const vis = gameplayNightVisibility(night);
       this.ambientLight.intensity =
-        (theme.ambient * 0.32 * (1 - lightNight * 0.42) + vis * 0.22) * mobileLift + (IS_MOBILE ? 0.14 : 0);
+        (theme.ambient * 0.42 * (1 - lightNight * 0.35) + vis * 0.24) * mobileLift + (IS_MOBILE ? 0.18 : 0.12);
     }
     if (this.sunLight) {
-      const sunDay = new THREE.Color(theme.id >= 3 ? '#FFF0D0' : '#FFF8F0');
+      const sunDay = new THREE.Color(theme.id >= 3 ? '#FFF4E0' : '#FFFBF5');
       const sunNight = new THREE.Color('#6688bb');
       this.sunLight.color.copy(sunDay.lerp(sunNight, lightNight));
-      this.sunLight.intensity = theme.sun * 0.88 * (1 - lightNight * 0.55) * mobileLift;
+      this.sunLight.intensity = theme.sun * 1.05 * (1 - lightNight * 0.48) * mobileLift;
     }
     if (this.fillLight) {
       const fillDay = new THREE.Color(theme.skyBottom || theme.sky);
       const fillNight = new THREE.Color(theme.id >= 4 ? '#004D40' : '#1a237e');
       this.fillLight.color.copy(fillDay.lerp(fillNight, lightNight * 0.75));
-      this.fillLight.intensity = theme.ambient * 0.24 * (0.55 + lightNight * 0.45) * mobileLift;
+      this.fillLight.intensity = theme.ambient * 0.32 * (0.55 + lightNight * 0.45) * mobileLift;
     }
     if (this.rimLight) {
-      this.rimLight.intensity = 0.1 + (1 - lightNight) * 0.14;
-      this.rimLight.color.set(lerpColor('#FFE082', '#80DEEA', fx * 0.85));
+      this.rimLight.intensity = 0.22 + (1 - lightNight) * 0.32;
+      this.rimLight.color.set(lerpColor('#FFF8E8', '#80DEEA', fx * 0.85));
+    }
+    if (this.gameplayRimLight) {
+      this.gameplayRimLight.intensity = 0.28 + (1 - lightNight) * 0.38;
     }
     if (this.accentLight) {
       this.accentLight.intensity = (theme.id >= 6 ? 0.55 : 0.25) * (0.25 + fx * 0.95);
@@ -643,9 +648,9 @@ export class World {
       this.roadNightLight.color.set(lerpColor('#FFE082', '#FFF3E0', 1 - fx * 0.25));
     }
     if (this.roadFillLight) {
-      const dayFill = IS_MOBILE ? 0.52 : 0.44;
-      this.roadFillLight.intensity = dayFill * (1 - lightNight * 0.22) + fx * 0.1;
-      this.roadFillLight.color.set(lerpColor('#FFF8F0', '#E8F4FF', lightNight * 0.35));
+      const dayFill = IS_MOBILE ? 0.62 : 0.52;
+      this.roadFillLight.intensity = dayFill * (1 - lightNight * 0.18) + fx * 0.12;
+      this.roadFillLight.color.set(lerpColor('#FFFBF5', '#E8F4FF', lightNight * 0.35));
     }
     if (this.roadMesh) {
       const rm = this.roadMesh.material as THREE.MeshStandardMaterial;
@@ -654,9 +659,9 @@ export class World {
       rm.emissive.set(this.roadAccent.primary).lerp(new THREE.Color(this.roadAccent.secondary), fx * 0.35);
       rm.roughness = 0.82 - lightNight * 0.1 - fx * 0.08;
       rm.metalness = 0.06 + fx * 0.14;
-      const roadDay = IS_MOBILE ? '#d8dee4' : '#c8cdd2';
-      const roadNight = IS_MOBILE ? '#b8c2cc' : '#9aa8b8';
-      rm.color.set(roadDay).lerp(new THREE.Color(roadNight), lightNight * (IS_MOBILE ? 0.18 : 0.25));
+      const roadDay = IS_MOBILE ? '#e8edf2' : '#dfe6ec';
+      const roadNight = IS_MOBILE ? '#c8d2dc' : '#b0bcc8';
+      rm.color.set(roadDay).lerp(new THREE.Color(roadNight), lightNight * (IS_MOBILE ? 0.15 : 0.22));
     }
     if (this.roadGlowMesh) {
       const gm = this.roadGlowMesh.material as THREE.MeshBasicMaterial;
@@ -718,9 +723,9 @@ export class World {
         }
       }
       const mid = ctx.createLinearGradient(size * 0.2, 0, size * 0.8, 0);
-      mid.addColorStop(0, '#252c32');
-      mid.addColorStop(0.5, '#3a444c');
-      mid.addColorStop(1, '#252c32');
+      mid.addColorStop(0, '#4a5560');
+      mid.addColorStop(0.5, '#6a7884');
+      mid.addColorStop(1, '#4a5560');
       ctx.fillStyle = mid;
       ctx.fillRect(size * 0.2, 0, size * 0.6, size);
     } else if (id === 3) {
@@ -818,9 +823,9 @@ export class World {
         }
       }
     } else {
-      fillAsphalt('#1e252b', '#3d4850', '#1e252b');
+      fillAsphalt('#3a4550', '#5c6a78', '#3a4550');
       if (id === 1) {
-        ctx.fillStyle = 'rgba(180,200,160,0.04)';
+        ctx.fillStyle = 'rgba(180,200,160,0.06)';
         ctx.fillRect(0, 0, size * 0.12, size);
         ctx.fillRect(size * 0.88, 0, size * 0.12, size);
       }
@@ -1080,16 +1085,16 @@ export class World {
     }
 
     ctx.strokeStyle = '#FFEB3B';
-    ctx.lineWidth = Math.max(4, size / 48);
+    ctx.lineWidth = Math.max(5, size / 42);
     ctx.lineCap = 'round';
-    ctx.setLineDash([size * 0.045, size * 0.028]);
+    ctx.setLineDash([size * 0.048, size * 0.026]);
     for (const ox of [-size * 0.014, size * 0.014]) {
       ctx.beginPath();
       ctx.moveTo(centerX + ox, 0);
       ctx.lineTo(centerX + ox, size);
       ctx.stroke();
-      drawGlowLine(em, centerX + ox, '#FFD54F', Math.max(4, size / 48), 1, [size * 0.045, size * 0.028]);
-      drawGlowLine(glow, centerX + ox, accent.primary, Math.max(6, size / 36), 0.55, [size * 0.045, size * 0.028]);
+      drawGlowLine(em, centerX + ox, '#FFD54F', Math.max(5, size / 42), 1.1, [size * 0.048, size * 0.026]);
+      drawGlowLine(glow, centerX + ox, accent.primary, Math.max(7, size / 32), 0.68, [size * 0.048, size * 0.026]);
     }
     ctx.setLineDash([]);
 
@@ -1109,15 +1114,16 @@ export class World {
     em.fillStyle = emRibbon;
     em.fillRect(centerX - size * 0.08, 0, size * 0.16, size);
 
-    ctx.strokeStyle = 'rgba(255,255,255,0.32)';
-    ctx.lineWidth = Math.max(2, size / 96);
-    ctx.setLineDash([size * 0.035, size * 0.04]);
+    ctx.strokeStyle = 'rgba(255,255,255,0.48)';
+    ctx.lineWidth = Math.max(2, size / 88);
+    ctx.setLineDash([size * 0.035, size * 0.038]);
     for (const lx of laneXs) {
       ctx.beginPath();
       ctx.moveTo(lx, 0);
       ctx.lineTo(lx, size);
       ctx.stroke();
-      drawGlowLine(em, lx, 'rgba(255,255,255,0.55)', Math.max(2, size / 96), 0.7, [size * 0.035, size * 0.04]);
+      drawGlowLine(em, lx, 'rgba(255,255,255,0.82)', Math.max(2, size / 88), 0.88, [size * 0.035, size * 0.038]);
+      drawGlowLine(glow, lx, accent.edge, Math.max(3, size / 72), 0.42, [size * 0.035, size * 0.038]);
     }
     ctx.setLineDash([]);
 
@@ -1783,15 +1789,15 @@ export class World {
   }
 
   private setupLighting(theme: DistrictTheme, _levelLength: number): void {
-    this.hemiLight = new THREE.HemisphereLight(theme.sky, theme.ground, theme.ambient * 0.95);
+    this.hemiLight = new THREE.HemisphereLight(theme.sky, theme.ground, theme.ambient * 1.05);
     this.hemiLight.name = 'hemi';
     this.scene.add(this.hemiLight);
 
-    this.ambientLight = new THREE.AmbientLight(0xffffff, theme.ambient * 0.38);
+    this.ambientLight = new THREE.AmbientLight(0xffffff, theme.ambient * 0.48);
     this.ambientLight.name = 'ambient';
     this.scene.add(this.ambientLight);
 
-    this.sunLight = new THREE.DirectionalLight(0xfff4e8, theme.sun);
+    this.sunLight = new THREE.DirectionalLight(0xfff8f0, theme.sun * 1.12);
     this.sunLight.position.set(20, 45, -25);
     this.sunLight.castShadow = false;
     this.sunLight.name = 'sun';
@@ -1803,7 +1809,7 @@ export class World {
     this.fillLight.name = 'fill';
     this.scene.add(this.fillLight);
 
-    this.rimLight = new THREE.DirectionalLight('#FFE082', 0.22);
+    this.rimLight = new THREE.DirectionalLight('#FFF8E8', 0.38);
     this.rimLight.position.set(0, 14, -28);
     this.rimLight.name = 'rim';
     this.scene.add(this.rimLight);
@@ -1819,9 +1825,14 @@ export class World {
     this.roadNightLight.name = 'roadNight';
     this.scene.add(this.roadNightLight);
 
-    this.roadFillLight = new THREE.PointLight('#FFF8F0', IS_MOBILE ? 0.48 : 0.4, IS_MOBILE ? 32 : 40, 1.6);
+    this.roadFillLight = new THREE.PointLight('#FFFBF5', IS_MOBILE ? 0.58 : 0.48, IS_MOBILE ? 36 : 44, 1.4);
     this.roadFillLight.name = 'roadFill';
     this.scene.add(this.roadFillLight);
+
+    this.gameplayRimLight = new THREE.DirectionalLight('#E8F4FF', 0.42);
+    this.gameplayRimLight.name = 'gameplayRim';
+    this.scene.add(this.gameplayRimLight);
+    this.scene.add(this.gameplayRimLight.target);
   }
 
   setPlayerZ(z: number, dt: number): void {
@@ -1858,7 +1869,12 @@ export class World {
       this.roadNightLight.position.set(playerX, 5.5, playerZ + 3);
     }
     if (this.roadFillLight) {
-      this.roadFillLight.position.set(playerX * 0.15, IS_MOBILE ? 7.5 : 8.5, playerZ + 12);
+      this.roadFillLight.position.set(playerX * 0.12, IS_MOBILE ? 8 : 9, playerZ + 14);
+    }
+    if (this.gameplayRimLight) {
+      this.gameplayRimLight.position.set(playerX, 7, playerZ - 16);
+      this.gameplayRimLight.target.position.set(playerX * 0.2, 0.8, playerZ + 24);
+      this.gameplayRimLight.target.updateMatrixWorld();
     }
   }
 
@@ -1899,18 +1915,19 @@ export class World {
       rm.emissiveIntensity = base * pulse * (turbo ? 1.12 : 1);
       rm.roughness = 0.82 - lightNight * 0.1 - this.wetFactor * 0.12;
       rm.metalness = 0.06 + nightFx * 0.14 + this.wetFactor * 0.14;
-      const roadDay = IS_MOBILE ? '#d8dee4' : '#c8cdd2';
-      const roadNight = IS_MOBILE ? '#b8c2cc' : '#9aa8b8';
-      rm.color.set(roadDay).lerp(new THREE.Color(roadNight), lightNight * (IS_MOBILE ? 0.18 : 0.25));
+      const roadDay = IS_MOBILE ? '#e8edf2' : '#dfe6ec';
+      const roadNight = IS_MOBILE ? '#c8d2dc' : '#b0bcc8';
+      rm.color.set(roadDay).lerp(new THREE.Color(roadNight), lightNight * (IS_MOBILE ? 0.15 : 0.22));
     }
     if (this.roadGlowMesh) {
       const gm = this.roadGlowMesh.material as THREE.MeshBasicMaterial;
-      const base = (IS_MOBILE ? 0.16 : 0.24) + nightFx * (IS_MOBILE ? 0.42 : 0.58);
+      const dayLane = (IS_MOBILE ? 0.24 : 0.3) * (1 - lightNight * 0.35);
+      const nightGlow = (IS_MOBILE ? 0.16 : 0.24) + nightFx * (IS_MOBILE ? 0.42 : 0.58);
       const combat = this.roadFx.combatIntensity ?? 0;
       const shoot = this.roadFx.shootPulse ?? 0;
-      const pulse = 1 + Math.sin(time * 3.1 + 0.5) * 0.06 * nightFx;
-      gm.opacity = nightFx > 0.04 ? base * pulse * wetMul * (turbo ? 1.15 : 1) * (1 + combat * 0.35 + shoot * 0.5) : 0;
-      this.roadGlowMesh.visible = nightFx > 0.04;
+      const pulse = 1 + Math.sin(time * 3.1 + 0.5) * 0.06 * Math.max(nightFx, 0.25);
+      gm.opacity = Math.max(dayLane, nightFx > 0.04 ? nightGlow * pulse * wetMul * (turbo ? 1.15 : 1) * (1 + combat * 0.35 + shoot * 0.5) : 0);
+      this.roadGlowMesh.visible = gm.opacity > 0.02;
       if (turbo) gm.color.set(this.roadAccent.secondary);
       else if (shoot > 0.2) gm.color.set(this.roadAccent.primary).lerp(new THREE.Color('#00E5FF'), shoot);
       else if (combat > 0.3) gm.color.set(this.roadAccent.secondary);
@@ -2036,6 +2053,7 @@ export class World {
     this.accentLight = null;
     this.roadNightLight = null;
     this.roadFillLight = null;
+    this.gameplayRimLight = null;
   }
 }
 

@@ -17,38 +17,30 @@ export function pickAdjacentLanes(): number[] {
 let barClearanceFlip = false;
 
 export function pickBarSpawn(difficulty: number): CreateBarOptions {
-  const sweepChance = difficulty >= 6 ? 0.12 : difficulty >= 4 ? 0.08 : difficulty >= 2 ? 0.05 : 0.02;
-  const fullChance = difficulty >= 5 ? 0.16 : difficulty >= 3 ? 0.11 : 0.06;
-  const twoLaneChance = difficulty >= 3 ? 0.2 : difficulty >= 2 ? 0.14 : 0.08;
-
   barClearanceFlip = !barClearanceFlip;
   const clearance: BarClearance =
     difficulty < 2 ? 'jump' : barClearanceFlip ? 'jump' : 'slide';
 
-  const roll = Math.random();
-  if (roll < sweepChance) {
+  const sweepChance = difficulty >= 5 ? 0.14 : difficulty >= 3 ? 0.09 : 0.04;
+
+  if (Math.random() < sweepChance) {
     return {
       span: 'full',
-      clearance: Math.random() < 0.55 ? 'jump' : 'slide',
+      clearance: Math.random() < 0.5 ? 'jump' : 'slide',
       motion: 'sweep' as BarMotion,
     };
   }
-  if (roll < sweepChance + fullChance) {
+
+  // Full-width or two-lane blocks only — no scattered solo lane bars
+  if (Math.random() < 0.52) {
     return { span: 'full' as BarSpan, clearance, motion: 'static' };
   }
-  if (roll < sweepChance + fullChance + twoLaneChance) {
-    return {
-      span: 'lane-2' as BarSpan,
-      clearance,
-      motion: 'static',
-      lanes: pickAdjacentLanes(),
-    };
-  }
+
   return {
-    span: 'lane-1' as BarSpan,
-    clearance: difficulty < 3 && Math.random() < 0.75 ? 'jump' : clearance,
+    span: 'lane-2' as BarSpan,
+    clearance,
     motion: 'static',
-    lanes: [pickRandomLane()],
+    lanes: pickAdjacentLanes(),
   };
 }
 

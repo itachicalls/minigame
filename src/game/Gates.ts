@@ -232,134 +232,135 @@ export function createBlocker(
 export function createDropoff(scene: THREE.Scene, z: number): DropoffEntity {
   const group = new THREE.Group();
   group.position.set(0, 0, z);
-  const seg = IS_MOBILE ? 16 : 24;
+  const seg = IS_MOBILE ? 12 : 20;
 
-  const padTex = getHexPadTexture();
-  padTex.repeat.set(2, 2);
   const platform = addMesh(
     group,
-    new THREE.CylinderGeometry(3.6, 3.9, 0.28, seg),
+    new THREE.CylinderGeometry(3.4, 3.55, 0.12, seg),
     new THREE.MeshStandardMaterial({
-      map: padTex,
-      color: '#FFD54F',
-      emissive: '#FF8F00',
-      emissiveIntensity: 0.45,
-      metalness: 0.35,
-      roughness: 0.45,
+      color: '#B0BEC5',
+      roughness: 0.88,
+      metalness: 0.08,
+      emissive: '#ECEFF1',
+      emissiveIntensity: 0.06,
     }),
     0,
-    0.16,
+    0.07,
     0
   );
 
-  addMesh(
+  const padRing = addMesh(
     group,
-    new THREE.CylinderGeometry(3.15, 3.15, 0.04, seg),
-    mat('#00E676', { emissive: '#00E676', emissiveIntensity: 0.55, transparent: true, opacity: 0.55 }),
+    new THREE.RingGeometry(2.85, 3.15, seg),
+    new THREE.MeshBasicMaterial({
+      color: '#4FC3F7',
+      transparent: true,
+      opacity: 0.35,
+      side: THREE.DoubleSide,
+    }),
     0,
-    0.32,
+    0.13,
     0,
     false
   );
+  padRing.rotation.x = -Math.PI / 2;
 
-  const rings: THREE.Mesh[] = [];
-  for (const [r0, r1, y, op] of [
-    [3.0, 3.25, 0.08, 0.45],
-    [2.4, 2.58, 0.12, 0.35],
-    [1.75, 1.92, 0.16, 0.5],
+  const innerMark = addMesh(
+    group,
+    new THREE.RingGeometry(1.2, 1.35, seg),
+    new THREE.MeshBasicMaterial({
+      color: '#FFFFFF',
+      transparent: true,
+      opacity: 0.42,
+      side: THREE.DoubleSide,
+    }),
+    0,
+    0.135,
+    0,
+    false
+  );
+  innerMark.rotation.x = -Math.PI / 2;
+
+  const rings: THREE.Mesh[] = [padRing, innerMark];
+
+  for (const [px, pz] of [
+    [-2.6, 0],
+    [2.6, 0],
   ] as const) {
-    const ring = addMesh(
-      group,
-      new THREE.RingGeometry(r0, r1, seg),
-      new THREE.MeshBasicMaterial({ color: '#FFD54F', transparent: true, opacity: op * 0.55, side: THREE.DoubleSide }),
-      0,
-      y,
-      0,
-      false
-    );
-    ring.rotation.x = -Math.PI / 2;
-    rings.push(ring);
-  }
-
-  for (let i = 0; i < 6; i++) {
-    const a = (i / 6) * Math.PI * 2;
-    const px = Math.cos(a) * 3.35;
-    const pz = Math.sin(a) * 3.35;
-    addMesh(group, new THREE.BoxGeometry(0.12, 2.8, 0.12), mat('#37474F', { metalness: 0.5, roughness: 0.4 }), px, 1.4, pz);
     addMesh(
       group,
-      new THREE.BoxGeometry(0.08, 2.4, 0.04),
-      mat('#00E676', { emissive: '#00E676', emissiveIntensity: 0.85 }),
-      px + Math.cos(a) * 0.08,
-      1.4,
-      pz + Math.sin(a) * 0.08
-    );
-    addMesh(
-      group,
-      new THREE.SphereGeometry(0.14, 8, 8),
-      mat('#FFD54F', { emissive: '#FFC107', emissiveIntensity: 1.0 }),
+      new THREE.BoxGeometry(0.1, 1.85, 0.1),
+      mat('#546E7A', { metalness: 0.55, roughness: 0.35 }),
       px,
-      2.85,
+      0.92,
       pz
     );
+    addMesh(
+      group,
+      new THREE.BoxGeometry(0.22, 0.14, 0.14),
+      mat('#78909C', { metalness: 0.6, roughness: 0.3 }),
+      px,
+      1.88,
+      pz
+    );
+    const lamp = addMesh(
+      group,
+      new THREE.SphereGeometry(0.08, 8, 8),
+      mat('#E3F2FD', { emissive: '#81D4FA', emissiveIntensity: 0.35 }),
+      px,
+      1.98,
+      pz
+    );
+    lamp.userData.isLamp = true;
   }
+
+  const mailbox = addMesh(
+    group,
+    new THREE.BoxGeometry(0.55, 0.75, 0.38),
+    mat('#1565C0', { metalness: 0.35, roughness: 0.45, emissive: '#0D47A1', emissiveIntensity: 0.12 }),
+    0,
+    0.48,
+    -1.1
+  );
+  addMesh(
+    group,
+    new THREE.BoxGeometry(0.48, 0.08, 0.02),
+    mat('#FFFFFF', { emissive: '#FFFFFF', emissiveIntensity: 0.15 }),
+    0,
+    0.62,
+    -0.9
+  );
 
   const beam = addMesh(
     group,
-    new THREE.CylinderGeometry(0.15, 1.8, 5.5, seg, 1, true),
+    new THREE.CylinderGeometry(0.04, 1.1, 3.2, seg, 1, true),
     new THREE.MeshBasicMaterial({
-      color: '#69F0AE',
+      color: '#81D4FA',
       transparent: true,
-      opacity: 0.22,
+      opacity: 0.06,
       side: THREE.DoubleSide,
       depthWrite: false,
       blending: THREE.AdditiveBlending,
     }),
     0,
-    2.75,
+    1.65,
     0,
     false
   );
 
-  for (const sx of [-1, 1]) {
-    const arrow = addMesh(
-      group,
-      new THREE.ConeGeometry(0.35, 0.7, 4),
-      mat('#FFD54F', { emissive: '#FFAB00', emissiveIntensity: 0.65, transparent: true, opacity: 0.75 }),
-      sx * 2.2,
-      3.8,
-      0,
-      false
-    );
-    arrow.rotation.z = sx * Math.PI;
-  }
-
-  addMesh(
-    group,
-    new THREE.BoxGeometry(0.55, 0.45, 0.35),
-    mat('#FF9800', { emissive: '#FF6F00', emissiveIntensity: 0.6 }),
-    0,
-    4.2,
-    0
-  );
-  addMesh(
-    group,
-    new THREE.BoxGeometry(0.6, 0.08, 0.08),
-    mat('#FFD54F', { emissive: '#FFC107', emissiveIntensity: 0.8 }),
-    0,
-    4.48,
-    0
-  );
-
-  const holoSign = makeTextSprite('◆ DROP-OFF ZONE ◆', '#00E676', 'rgba(0,20,40,0.82)');
-  holoSign.position.set(0, 5.2, 0);
-  holoSign.scale.set(6, 1.4, 1);
+  const holoSign = makeTextSprite('DROP OFF', '#FFFFFF', 'rgba(13,71,161,0.88)');
+  holoSign.position.set(0, 2.35, -0.85);
+  holoSign.scale.set(3.8, 0.85, 1);
   group.add(holoSign);
 
-  const subSign = makeTextSprite('DELIVER PACKAGE TO WIN', '#FFD54F', 'rgba(0,0,0,0.65)');
-  subSign.position.set(0, 4.35, 0);
-  subSign.scale.set(4.5, 0.75, 1);
+  const subSign = makeTextSprite('Deliver here to win', '#B3E5FC', 'rgba(0,0,0,0.45)');
+  subSign.position.set(0, 1.85, -0.85);
+  subSign.scale.set(3.2, 0.55, 1);
   group.add(subSign);
+
+  const dockLight = new THREE.PointLight('#E3F2FD', IS_MOBILE ? 0.35 : 0.45, 12, 2);
+  dockLight.position.set(0, 2.2, 0.5);
+  group.add(dockLight);
 
   scene.add(group);
   return { kind: 'dropoff', mesh: group, z, reached: false, platform, rings, beam, holoSign };
@@ -993,21 +994,23 @@ export function animateBlocker(b: BlockerEntity, time: number): void {
 }
 
 export function animateDropoff(d: DropoffEntity, time: number): void {
-  d.platform.rotation.y = time * 0.65;
-  d.platform.position.y = 0.16 + Math.sin(time * 2.2) * 0.05;
-
-  d.rings.forEach((ring, i) => {
-    ring.rotation.z = time * (i % 2 === 0 ? 1.2 : -0.9) + i;
-    const matRing = ring.material as THREE.MeshBasicMaterial;
-    matRing.opacity = 0.18 + Math.sin(time * 2.5 + i) * 0.08;
-  });
+  d.holoSign.position.y = 2.35 + Math.sin(time * 1.8) * 0.04;
+  d.holoSign.material.opacity = 0.92 + Math.sin(time * 3) * 0.05;
 
   const beamMat = d.beam.material as THREE.MeshBasicMaterial;
-  beamMat.opacity = 0.14 + Math.sin(time * 4) * 0.1;
-  d.beam.scale.set(1 + Math.sin(time * 5) * 0.06, 1, 1 + Math.sin(time * 5) * 0.06);
+  beamMat.opacity = 0.04 + Math.sin(time * 2.5) * 0.025;
 
-  d.holoSign.position.y = 5.2 + Math.sin(time * 2.5) * 0.12;
-  d.holoSign.material.opacity = 0.88 + Math.sin(time * 6) * 0.1;
+  d.rings.forEach((ring, i) => {
+    const matRing = ring.material as THREE.MeshBasicMaterial;
+    matRing.opacity = (i === 0 ? 0.28 : 0.38) + Math.sin(time * 2 + i) * 0.06;
+  });
+
+  d.mesh.traverse((c) => {
+    if (c instanceof THREE.Mesh && c.userData.isLamp) {
+      const m = c.material as THREE.MeshStandardMaterial;
+      m.emissiveIntensity = 0.28 + Math.sin(time * 4 + c.position.x) * 0.12;
+    }
+  });
 }
 
 export function applyGateEffect(

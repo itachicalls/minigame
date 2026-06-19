@@ -10,11 +10,11 @@ export type CoinEntity = {
 
 const COIN_GEO = new THREE.CylinderGeometry(0.25, 0.25, 0.08, IS_MOBILE ? 10 : 14);
 const COIN_MAT = new THREE.MeshStandardMaterial({
-  color: '#FFD54F',
-  emissive: '#FF8F00',
-  emissiveIntensity: 0.55,
-  metalness: 0.82,
-  roughness: 0.22,
+  color: '#FFE082',
+  emissive: '#FFAB00',
+  emissiveIntensity: 0.72,
+  metalness: 0.88,
+  roughness: 0.18,
 });
 
 export function createCoinLine(
@@ -44,7 +44,7 @@ export function updateCoins(coins: CoinEntity[], dt: number, time: number, playe
     c.mesh.rotation.z += dt * 3.5;
     c.mesh.position.y = 0.6 + Math.sin(time * 5 + c.x) * 0.12;
     const mat = c.mesh.material as THREE.MeshStandardMaterial;
-    mat.emissiveIntensity = 0.45 + Math.sin(time * 8 + c.x * 2) * 0.25;
+    mat.emissiveIntensity = 0.58 + Math.sin(time * 8 + c.x * 2) * 0.28;
   }
 }
 

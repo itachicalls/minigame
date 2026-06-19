@@ -246,7 +246,7 @@ export class Game {
     this.renderer.shadowMap.type = THREE.BasicShadowMap;
     if (ENABLE_TONE_MAPPING) {
       this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-      this.renderer.toneMappingExposure = IS_MOBILE ? 1.1 : 1.02;
+      this.renderer.toneMappingExposure = IS_MOBILE ? 1.18 : 1.08;
     } else {
       this.renderer.toneMapping = THREE.NoToneMapping;
     }
@@ -1575,7 +1575,7 @@ export class Game {
     if (this.runners.some((r) => r.alive && r.isBoss)) return;
     if (this.player.z >= this.dropoff.z - 3) {
       this.dropoff.reached = true;
-      this.particles.gateBurst(0, this.dropoff.z, '#FFD54F');
+      this.particles.gateBurst(0, this.dropoff.z, '#81D4FA');
       sfx.delivery();
       this.endGame(true);
     }
@@ -1635,7 +1635,7 @@ export class Game {
     if (ENABLE_TONE_MAPPING) {
       const nightFx = this.world.getNightFx();
       const vis = this.world.getGameplayNight();
-      const base = IS_MOBILE ? 1.1 : 1.06;
+      const base = IS_MOBILE ? 1.18 : 1.08;
       this.renderer.toneMappingExposure = base * (1 - nightFx * (IS_MOBILE ? 0.04 : 0.08)) + vis * (IS_MOBILE ? 0.14 : 0.1);
     }
     if (this.pipeline) {

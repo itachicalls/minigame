@@ -42,12 +42,15 @@ function boostHazardMaterial(m: THREE.MeshStandardMaterial, night: number): void
     m.userData.baseEmissiveIntensity = m.emissiveIntensity;
   }
   const base = m.userData.baseEmissiveIntensity as number;
-  const lift = IS_MOBILE ? 0.12 + night * 0.22 : night * 0.18;
+  const lift = IS_MOBILE ? 0.18 + night * 0.28 : 0.14 + night * 0.22;
   if (lift > 0.02 && !m.transparent) {
-    m.emissive.set(IS_MOBILE ? '#FFE0B2' : '#FFF3E0');
+    m.emissive.set(IS_MOBILE ? '#FFE8CC' : '#FFF3E0');
     m.emissiveIntensity = base + lift;
+    if (m.userData.baseRoughness === undefined) m.userData.baseRoughness = m.roughness;
+    m.roughness = Math.max(0.42, (m.userData.baseRoughness as number) - 0.12);
   } else {
     m.emissiveIntensity = base;
+    if (m.userData.baseRoughness !== undefined) m.roughness = m.userData.baseRoughness as number;
   }
 }
 
