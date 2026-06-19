@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { DistrictTheme } from '../types';
 import { addMesh, mat, disposeObject3D } from './ModelUtils';
-import { IS_MOBILE, WORLD_AHEAD, WORLD_BEHIND, freezeStatic } from './platform';
+import { IS_MOBILE, WORLD_AHEAD, WORLD_BEHIND, SKY_RES, SKY_UPDATE_SEC, freezeStatic, lerpColor } from './platform';
 
 type AnimProp = {
   obj: THREE.Object3D;
@@ -11,6 +11,7 @@ type AnimProp = {
   baseY: number;
   phase: number;
   light?: THREE.PointLight;
+  bulb?: THREE.Mesh;
 };
 
 export class World {
@@ -19,6 +20,13 @@ export class World {
   private animProps: AnimProp[] = [];
   private roadTexture!: THREE.CanvasTexture;
   private skyTexture: THREE.CanvasTexture | null = null;
+  private skyCanvas: HTMLCanvasElement | null = null;
+  private skyTheme!: DistrictTheme;
+  private hemiLight!: THREE.HemisphereLight;
+  private ambientLight!: THREE.AmbientLight;
+  private sunLight!: THREE.DirectionalLight;
+  private skyPhase = -1;
+  private skyTick = 0;
   private playerZ = 0;
   private cullTimer = 0;
 
@@ -29,14 +37,19 @@ export class World {
   build(theme: DistrictTheme, levelLength: number): void {
     this.clear();
 
+    this.skyTheme = theme;
+    this.setupLighting(theme, levelLength);
     this.buildSky(theme);
-    this.scene.fog = new THREE.FogExp2(theme.fog, IS_MOBILE ? 0.016 : theme.id <= 2 ? 0.008 : 0.012);
+    this.scene.fog = new THREE.FogExp2(theme.fog, IS_MOBILE ? 0.016 : 0.011);
 
     // Grass field
+    const grassTex = this.makeGrassTexture(theme);
+    grassTex.wrapS = grassTex.wrapT = THREE.RepeatWrapping;
+    grassTex.repeat.set(6, (levelLength + 140) / 10);
     const grass = addMesh(
       this.scene,
       new THREE.PlaneGeometry(50, levelLength + 140),
-      mat(theme.ground, { roughness: 1 }),
+      new THREE.MeshStandardMaterial({ map: grassTex, color: theme.ground, roughness: 1 }),
       0,
       0,
       levelLength / 2,
@@ -49,11 +62,14 @@ export class World {
     this.rootMeshes.push(grass);
 
     // Sidewalks
+    const walkTex = this.makeSidewalkTexture();
+    walkTex.wrapS = walkTex.wrapT = THREE.RepeatWrapping;
+    walkTex.repeat.set(2, (levelLength + 140) / 6);
     for (const x of [-5.2, 5.2]) {
       const walk = addMesh(
         this.scene,
         new THREE.PlaneGeometry(3.5, levelLength + 140),
-        mat('#B0BEC5', { roughness: 0.95 }),
+        new THREE.MeshStandardMaterial({ map: walkTex, roughness: 0.95 }),
         x,
         0,
         levelLength / 2,
@@ -93,28 +109,30 @@ export class World {
       this.rootMeshes.push(curb);
     }
 
-    // Sidewalk tile accents along the route
-    for (let z = 20; z < levelLength; z += 14) {
-      for (const x of [-5.2, 5.2]) {
-        const tile = addMesh(
-          this.scene,
-          new THREE.PlaneGeometry(3.2, 1.2),
-          mat('#90A4AE', { roughness: 0.9 }),
-          x,
-          0.018,
-          z,
-          false
-        );
-        tile.rotation.x = -Math.PI / 2;
-        tile.userData.isTerrain = true;
-        this.rootMeshes.push(tile);
+    // Sidewalk tile accents (desktop only — skip mesh churn on mobile)
+    if (!IS_MOBILE) {
+      for (let z = 30; z < levelLength; z += 28) {
+        for (const x of [-5.2, 5.2]) {
+          const tile = addMesh(
+            this.scene,
+            new THREE.PlaneGeometry(3.2, 1.2),
+            mat('#90A4AE', { roughness: 0.9 }),
+            x,
+            0.018,
+            z,
+            false
+          );
+          tile.rotation.x = -Math.PI / 2;
+          tile.userData.isTerrain = true;
+          this.rootMeshes.push(tile);
+        }
       }
     }
 
     const rng = seededRandom(theme.id * 1337 + levelLength);
 
     // Clouds
-    const cloudCount = IS_MOBILE ? 5 : 14;
+    const cloudCount = IS_MOBILE ? 3 : 5;
     for (let i = 0; i < cloudCount; i++) {
       const cloud = this.makeCloud(rng);
       const cz = rng() * (levelLength + 60);
@@ -125,28 +143,27 @@ export class World {
     }
 
     // Buildings, props, alien crash sites
-    const propStep = IS_MOBILE ? 16 : 8;
-    const propJitter = IS_MOBILE ? 8 : 8;
+    const propStep = IS_MOBILE ? 22 : 18;
+    const propJitter = IS_MOBILE ? 5 : 7;
     for (let z = 0; z < levelLength + 50; z += propStep + Math.floor(rng() * propJitter)) {
       for (const side of [-1, 1]) {
         const roll = rng();
-        if (roll > 0.18) {
-          const building = this.makeBuilding(theme, rng);
+        if (roll > (IS_MOBILE ? 0.22 : 0.14)) {
+          const building = this.makeBuilding(theme, rng, side);
           building.position.set(side * (8 + rng() * 5), 0, z + rng() * 5);
-          building.rotation.y = side * 0.08;
           freezeStatic(building);
           this.scene.add(building);
           this.rootMeshes.push(building);
         }
-        if (roll > 0.55 && theme.id <= 2 && !IS_MOBILE) {
+        if (roll > 0.48 && theme.id <= 2 && !IS_MOBILE) {
           const tree = this.makeTree(rng);
           tree.position.set(side * (10 + rng() * 3), 0, z + rng() * 4);
           freezeStatic(tree);
           this.scene.add(tree);
           this.rootMeshes.push(tree);
         }
-        if (rng() > 0.72) {
-          const prop = rng() > 0.5 ? this.makeStreetLamp() : this.makeMailbox();
+        if (rng() > (IS_MOBILE ? 0.78 : 0.62)) {
+          const prop = rng() > 0.45 ? this.makeStreetLamp(theme) : this.makeMailbox();
           const pz = z + rng() * 3;
           prop.position.set(side * (6.2 + rng()), 0, pz);
           freezeStatic(prop);
@@ -161,6 +178,7 @@ export class World {
               baseY: 0,
               phase: rng() * 6,
               light: prop.userData.flickerLight as THREE.PointLight | undefined,
+              bulb: prop.userData.flickerBulb as THREE.Mesh | undefined,
             });
           }
         }
@@ -178,23 +196,139 @@ export class World {
     // Start / finish arches
     this.addMilestoneArch(8, '#66BB6A', 'START');
     this.addMilestoneArch(levelLength - 5, '#FFD54F', 'ZONE');
-
-    this.setupLighting(theme, levelLength);
   }
 
   private buildSky(theme: DistrictTheme): void {
-    const canvas = document.createElement('canvas');
-    canvas.width = 4;
-    canvas.height = 512;
-    const ctx = canvas.getContext('2d')!;
-    const grad = ctx.createLinearGradient(0, 0, 0, 512);
-    grad.addColorStop(0, theme.sky);
-    grad.addColorStop(0.55, theme.skyBottom);
-    grad.addColorStop(1, theme.fog);
+    this.skyCanvas = document.createElement('canvas');
+    this.skyCanvas.width = SKY_RES;
+    this.skyCanvas.height = SKY_RES;
+    this.skyTexture = new THREE.CanvasTexture(this.skyCanvas);
+    this.skyTexture.colorSpace = THREE.SRGBColorSpace;
+    this.scene.background = this.skyTexture;
+    this.paintSky(0, theme);
+  }
+
+  private drawSkyCloud(ctx: CanvasRenderingContext2D, x: number, y: number, scale: number, alpha: number): void {
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = '#ffffff';
+    const r = 28 * scale;
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.arc(x + r * 0.9, y - r * 0.15, r * 0.82, 0, Math.PI * 2);
+    ctx.arc(x + r * 1.75, y + r * 0.05, r * 0.7, 0, Math.PI * 2);
+    ctx.arc(x - r * 0.75, y + r * 0.08, r * 0.65, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  private paintSky(night: number, theme: DistrictTheme): void {
+    if (!this.skyCanvas) return;
+    const ctx = this.skyCanvas.getContext('2d')!;
+    const w = this.skyCanvas.width;
+    const h = this.skyCanvas.height;
+
+    const dayTop = lerpColor(theme.sky, '#87CEEB', 0.25);
+    const dayMid = lerpColor(theme.skyBottom, '#B3E5FC', 0.35);
+    const dayHorizon = lerpColor('#FFF176', theme.fog, 0.45);
+    const dayGlow = lerpColor('#FFFDE7', theme.ground, 0.15);
+
+    const top = lerpColor(dayTop, '#0a0520', night);
+    const mid = lerpColor(dayMid, '#1a1040', night);
+    const horizon = lerpColor(dayHorizon, '#120820', night);
+    const glow = lerpColor(dayGlow, '#050510', night);
+
+    const grad = ctx.createLinearGradient(0, 0, 0, h);
+    grad.addColorStop(0, top);
+    grad.addColorStop(0.38, mid);
+    grad.addColorStop(0.68, horizon);
+    grad.addColorStop(0.88, glow);
+    grad.addColorStop(1, lerpColor(theme.fog, '#0a0a12', night));
     ctx.fillStyle = grad;
-    ctx.fillRect(0, 0, 4, 512);
-    this.scene.background = new THREE.CanvasTexture(canvas);
-    this.skyTexture = this.scene.background as THREE.CanvasTexture;
+    ctx.fillRect(0, 0, w, h);
+
+    if (night < 0.72) {
+      const sunAlpha = Math.max(0, 1 - night * 1.35);
+      const sunX = w * 0.74;
+      const sunY = h * 0.34;
+      const sunGrad = ctx.createRadialGradient(sunX, sunY, 0, sunX, sunY, 110);
+      sunGrad.addColorStop(0, `rgba(255,255,230,${0.95 * sunAlpha})`);
+      sunGrad.addColorStop(0.35, `rgba(255,236,140,${0.55 * sunAlpha})`);
+      sunGrad.addColorStop(1, 'rgba(255,200,80,0)');
+      ctx.fillStyle = sunGrad;
+      ctx.fillRect(0, 0, w, h);
+    }
+
+    if (night > 0.28) {
+      const moonAlpha = Math.min(1, (night - 0.28) * 1.35);
+      const moonX = w * 0.78;
+      const moonY = h * 0.22;
+      ctx.fillStyle = `rgba(240,240,255,${0.9 * moonAlpha})`;
+      ctx.beginPath();
+      ctx.arc(moonX, moonY, 26, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = `rgba(10,5,32,${0.85 * moonAlpha})`;
+      ctx.beginPath();
+      ctx.arc(moonX + 10, moonY - 6, 22, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    if (night < 0.55) {
+      const cloudAlpha = 0.55 * (1 - night * 1.2);
+      const clouds: [number, number, number][] = [
+        [0.12, 0.28, 1.1],
+        [0.42, 0.22, 0.95],
+        [0.68, 0.31, 1.25],
+        [0.86, 0.24, 0.85],
+        [0.28, 0.38, 0.75],
+        [0.55, 0.42, 0.9],
+      ];
+      for (const [nx, ny, sc] of clouds) {
+        this.drawSkyCloud(ctx, nx * w, ny * h, sc, cloudAlpha);
+      }
+    }
+
+    if (night > 0.2) {
+      const starAlpha = Math.min(1, (night - 0.2) * 1.3);
+      const starCount = IS_MOBILE ? 40 : 60;
+      for (let i = 0; i < starCount; i++) {
+        const sx = ((i * 97) % 1000) / 1000;
+        const sy = ((i * 53) % 720) / 1000;
+        const twinkle = 0.55 + ((i * 17) % 10) / 20;
+        ctx.fillStyle = `rgba(255,255,255,${starAlpha * twinkle})`;
+        const r = i % 4 === 0 ? 1.6 : 1.0;
+        ctx.beginPath();
+        ctx.arc(sx * w, sy * h * 0.62, r, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    if (this.skyTexture) this.skyTexture.needsUpdate = true;
+
+    if (this.scene.fog instanceof THREE.FogExp2) {
+      this.scene.fog.color.set(lerpColor(theme.fog, '#050510', night));
+    }
+    if (this.hemiLight) {
+      this.hemiLight.intensity = theme.ambient * 0.9 * (1 - night * 0.6);
+      this.hemiLight.color.set(lerpColor(theme.sky, '#334', night * 0.5));
+    }
+    if (this.ambientLight) {
+      this.ambientLight.intensity = theme.ambient * 0.35 * (1 - night * 0.65);
+    }
+    if (this.sunLight) {
+      this.sunLight.intensity = theme.sun * (1 - night * 0.75);
+    }
+  }
+
+  private updateSkyCycle(time: number, dt: number): void {
+    this.skyTick += dt;
+    if (this.skyTick < SKY_UPDATE_SEC) return;
+    this.skyTick = 0;
+    const night = (Math.sin(time * 0.04) + 1) / 2;
+    const threshold = IS_MOBILE ? 0.04 : 0.025;
+    if (Math.abs(night - this.skyPhase) < threshold) return;
+    this.skyPhase = night;
+    this.paintSky(night, this.skyTheme);
   }
 
   private makeRoadTexture(): THREE.CanvasTexture {
@@ -202,14 +336,13 @@ export class World {
     c.width = 256;
     c.height = 256;
     const ctx = c.getContext('2d')!;
-    ctx.fillStyle = '#2E3A40';
+    ctx.fillStyle = '#343f46';
     ctx.fillRect(0, 0, 256, 256);
     for (let y = 0; y < 256; y += 4) {
-      ctx.fillStyle = y % 8 === 0 ? '#3D4F57' : '#2E3A40';
+      ctx.fillStyle = y % 8 === 0 ? '#44555e' : '#343f46';
       ctx.fillRect(0, y, 256, 4);
     }
-    // Lane dividers (5-lane road)
-    ctx.strokeStyle = 'rgba(255,255,255,0.22)';
+    ctx.strokeStyle = 'rgba(255,255,255,0.28)';
     ctx.lineWidth = 2;
     ctx.setLineDash([10, 14]);
     for (const lx of [51, 102, 128, 154, 205]) {
@@ -219,7 +352,6 @@ export class World {
       ctx.stroke();
     }
     ctx.setLineDash([]);
-    // Center caution stripe
     ctx.strokeStyle = '#FFEB3B';
     ctx.lineWidth = 3;
     ctx.setLineDash([16, 12]);
@@ -228,95 +360,272 @@ export class World {
     ctx.lineTo(128, 256);
     ctx.stroke();
     ctx.setLineDash([]);
-    // Edge lines
-    ctx.fillStyle = 'rgba(255,255,255,0.85)';
+    ctx.fillStyle = 'rgba(255,255,255,0.9)';
     ctx.fillRect(6, 0, 8, 256);
     ctx.fillRect(242, 0, 8, 256);
-    // Wear patches
-    ctx.fillStyle = 'rgba(0,0,0,0.08)';
+    ctx.fillStyle = 'rgba(255,213,79,0.35)';
+    for (let i = 0; i < 12; i++) {
+      ctx.fillRect(14 + (i % 2) * 4, (i * 21) % 240, 3, 10);
+      ctx.fillRect(239 - (i % 2) * 4, (i * 27) % 240, 3, 10);
+    }
+    ctx.fillStyle = 'rgba(0,0,0,0.07)';
     for (let i = 0; i < 8; i++) {
       ctx.fillRect(20 + i * 28, (i * 37) % 220, 18, 10);
     }
-    return new THREE.CanvasTexture(c);
+    const tex = new THREE.CanvasTexture(c);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    return tex;
+  }
+
+  private makeGrassTexture(theme: DistrictTheme): THREE.CanvasTexture {
+    const c = document.createElement('canvas');
+    c.width = 128;
+    c.height = 128;
+    const ctx = c.getContext('2d')!;
+    ctx.fillStyle = theme.ground;
+    ctx.fillRect(0, 0, 128, 128);
+    for (let i = 0; i < 120; i++) {
+      const x = (i * 37) % 128;
+      const y = (i * 53) % 128;
+      ctx.fillStyle = i % 2 === 0 ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)';
+      ctx.fillRect(x, y, 3, 3);
+    }
+    for (let i = 0; i < 24; i++) {
+      ctx.fillStyle = `rgba(0,0,0,${0.04 + (i % 3) * 0.02})`;
+      ctx.beginPath();
+      ctx.arc((i * 19) % 128, (i * 41) % 128, 4 + (i % 4), 0, Math.PI * 2);
+      ctx.fill();
+    }
+    const tex = new THREE.CanvasTexture(c);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    return tex;
+  }
+
+  private makeSidewalkTexture(): THREE.CanvasTexture {
+    const c = document.createElement('canvas');
+    c.width = 128;
+    c.height = 128;
+    const ctx = c.getContext('2d')!;
+    ctx.fillStyle = '#B0BEC5';
+    ctx.fillRect(0, 0, 128, 128);
+    ctx.strokeStyle = 'rgba(255,255,255,0.35)';
+    ctx.lineWidth = 1;
+    for (let y = 0; y < 128; y += 16) {
+      for (let x = 0; x < 128; x += 16) {
+        ctx.strokeRect(x + 0.5, y + 0.5, 15, 15);
+      }
+    }
+    ctx.fillStyle = 'rgba(0,0,0,0.06)';
+    for (let i = 0; i < 10; i++) {
+      ctx.fillRect((i * 23) % 120, (i * 31) % 120, 8, 6);
+    }
+    const tex = new THREE.CanvasTexture(c);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    return tex;
   }
 
   private makeCloud(rng: () => number): THREE.Group {
     const g = new THREE.Group();
-    const cloudMat = mat('#FFFFFF', { transparent: true, opacity: 0.85, roughness: 1 });
-    for (let i = 0; i < 5; i++) {
-      const puff = addMesh(g, new THREE.SphereGeometry(1.2 + rng() * 1.5, 10, 8), cloudMat, (i - 2) * 1.1, 0.2 + rng() * 0.5, (rng() - 0.5) * 0.8, false);
-      puff.scale.y = 0.55;
+    const cloudMat = mat('#FFFFFF', { transparent: true, opacity: 0.92, roughness: 1 });
+    const puffCount = IS_MOBILE ? 4 : 6;
+    for (let i = 0; i < puffCount; i++) {
+      const puff = addMesh(
+        g,
+        new THREE.SphereGeometry(1.1 + rng() * 1.4, 10, 8),
+        cloudMat,
+        (i - puffCount / 2) * 1.05,
+        0.15 + rng() * 0.55,
+        (rng() - 0.5) * 0.9,
+        false
+      );
+      puff.scale.set(1, 0.5 + rng() * 0.15, 1);
     }
+    addMesh(g, new THREE.SphereGeometry(1.8, 8, 8), mat('#FFFFFF', { transparent: true, opacity: 0.35 }), 0, -0.2, 0, false).scale.set(2.2, 0.3, 1.4);
     return g;
   }
 
-  private makeBuilding(theme: DistrictTheme, rng: () => number): THREE.Group {
+  private addWindow(
+    parent: THREE.Group,
+    x: number,
+    y: number,
+    z: number,
+    w: number,
+    h: number,
+    lit: boolean,
+    theme: DistrictTheme
+  ): void {
+    const frame = mat('#ECEFF1', { roughness: 0.7 });
+    const glass = mat(lit ? (theme.id >= 4 ? '#E1BEE7' : '#FFF9C4') : '#546E7A', {
+      emissive: lit ? (theme.id >= 4 ? '#CE93D8' : '#FFD54F') : '#263238',
+      emissiveIntensity: lit ? (theme.id >= 4 ? 0.95 : 0.45) : 0.05,
+      metalness: 0.2,
+      roughness: 0.25,
+    });
+    addMesh(parent, new THREE.BoxGeometry(w + 0.08, h + 0.08, 0.05), frame, x, y, z);
+    addMesh(parent, new THREE.BoxGeometry(w, h, 0.04), glass, x, y, z + 0.02);
+    if (lit && h > 0.35) {
+      addMesh(parent, new THREE.BoxGeometry(0.03, h * 0.85, 0.02), frame, x, y, z + 0.04);
+      addMesh(parent, new THREE.BoxGeometry(w * 0.85, 0.03, 0.02), frame, x, y, z + 0.04);
+    }
+  }
+
+  private addFacadeWindows(
+    parent: THREE.Group,
+    roadSide: number,
+    w: number,
+    h: number,
+    d: number,
+    theme: DistrictTheme,
+    rng: () => number
+  ): void {
+    const faceX = roadSide > 0 ? -w / 2 - 0.03 : w / 2 + 0.03;
+    const cols = Math.max(2, Math.floor(w / (IS_MOBILE ? 1.85 : 1.35)));
+    const rows = Math.max(2, Math.floor((h - 2) / (IS_MOBILE ? 1.85 : 1.55)));
+    const winW = Math.min(0.62, (w - 0.6) / cols - 0.12);
+    const winH = Math.min(0.82, (h - 2.2) / rows - 0.12);
+
+    for (let row = 0; row < rows; row++) {
+      for (let col = 0; col < cols; col++) {
+        const y = 1.35 + row * (winH + 0.18);
+        const z = -d / 2 + 0.55 + col * (winW + 0.18) + winW / 2;
+        if (row === 0 && col === Math.floor(cols / 2) && theme.id <= 2) continue;
+        const lit = rng() > (theme.id >= 3 ? 0.35 : 0.22);
+        this.addWindow(parent, faceX, y, z, winW, winH, lit, theme);
+      }
+    }
+  }
+
+  private makeBuilding(theme: DistrictTheme, rng: () => number, roadSide: number): THREE.Group {
     const g = new THREE.Group();
-    const h = 6 + rng() * 12;
-    const w = 4 + rng() * 4;
-    const d = 5 + rng() * 5;
-    const wallColor = new THREE.Color().setHSL(theme.buildingHue + rng() * 0.07, 0.38, 0.34 + theme.id * 0.04);
-    addMesh(g, new THREE.BoxGeometry(w, h, d), mat(wallColor.getStyle()), 0, h / 2, 0);
+    const style = theme.id >= 4 ? 'neon' : theme.id >= 3 ? 'industrial' : theme.id >= 2 ? 'downtown' : 'suburban';
+    const h = style === 'downtown' ? 10 + rng() * 14 : style === 'suburban' ? 5 + rng() * 4 : 7 + rng() * 9;
+    const w = style === 'downtown' ? 5 + rng() * 3 : 4.5 + rng() * 3.5;
+    const d = 5 + rng() * 4;
 
-    const roof = addMesh(
-      g,
-      new THREE.ConeGeometry(Math.max(w, d) * 0.65, 2.2, 4),
-      mat(theme.id >= 4 ? '#4A148C' : '#BF360C', { roughness: 0.8 }),
-      0,
-      h + 1,
-      0
-    );
-    roof.rotation.y = Math.PI / 4;
+    const wallHue = theme.buildingHue + rng() * 0.08;
+    const wallColor = new THREE.Color().setHSL(wallHue, style === 'suburban' ? 0.42 : 0.32, style === 'neon' ? 0.22 : 0.38 + theme.id * 0.03);
+    const trimColor = new THREE.Color().setHSL(wallHue, 0.25, style === 'suburban' ? 0.78 : 0.55);
+    const wallMat = mat(wallColor.getStyle(), { roughness: 0.82 });
+    const trimMat = mat(trimColor.getStyle(), { roughness: 0.75 });
+    const roofMat = mat(style === 'neon' ? '#311B92' : style === 'suburban' ? '#BF360C' : '#455A64', {
+      roughness: 0.85,
+      emissive: style === 'neon' ? '#7B1FA2' : '#000000',
+      emissiveIntensity: style === 'neon' ? 0.25 : 0,
+    });
 
-    const door = addMesh(g, new THREE.BoxGeometry(1.1, 1.8, 0.12), mat('#3E2723'), 0, 0.9, d / 2 + 0.02);
-    addMesh(g, new THREE.BoxGeometry(1.4, 0.25, 0.6), mat(theme.id >= 3 ? '#78909C' : '#FF8A65', { emissive: '#FF6E40', emissiveIntensity: 0.15 }), 0, 2.8, d / 2 + 0.35);
+    addMesh(g, new THREE.BoxGeometry(w, h, d), wallMat, 0, h / 2, 0);
+    addMesh(g, new THREE.BoxGeometry(w + 0.12, 0.22, d + 0.12), trimMat, 0, 0.11, 0);
 
-    for (let row = 1; row < h / 2.2; row++) {
-      for (let col = -1; col <= 1; col += 2) {
-        if (rng() > 0.25) {
-          addMesh(
-            g,
-            new THREE.PlaneGeometry(0.55, 0.75),
-            mat(theme.id >= 4 ? '#E1BEE7' : '#FFF9C4', {
-              emissive: theme.id >= 4 ? '#AB47BC' : '#FFF176',
-              emissiveIntensity: theme.id >= 4 ? 0.9 : 0.2 + rng() * 0.2,
-            }),
-            col * w * 0.28,
-            row * 2,
-            d / 2 + 0.03
-          );
+    if (style === 'suburban') {
+      const roofL = addMesh(g, new THREE.BoxGeometry(w / 2 + 0.1, 0.18, d + 0.35), roofMat, -w / 4, h + 0.1, 0);
+      roofL.rotation.z = 0.42;
+      const roofR = addMesh(g, new THREE.BoxGeometry(w / 2 + 0.1, 0.18, d + 0.35), roofMat, w / 4, h + 0.1, 0);
+      roofR.rotation.z = -0.42;
+      addMesh(g, new THREE.BoxGeometry(0.45, 1.1, 0.45), mat('#78909C', { roughness: 0.8 }), w * 0.28, h + 0.85, d * 0.15);
+      addMesh(g, new THREE.BoxGeometry(1.5, 0.1, 0.85), trimMat, roadSide > 0 ? -w / 2 - 0.55 : w / 2 + 0.55, 0.35, 0.2);
+    } else if (style === 'downtown') {
+      addMesh(g, new THREE.BoxGeometry(w + 0.2, 0.35, d + 0.2), mat('#37474F'), 0, h + 0.18, 0);
+      addMesh(g, new THREE.BoxGeometry(1.2, 0.55, 1.0), mat('#546E7A', { metalness: 0.35 }), w * 0.25, h + 0.55, 0);
+      for (let band = 1; band < 4; band++) {
+        addMesh(g, new THREE.BoxGeometry(w + 0.06, 0.08, d + 0.06), trimMat, 0, band * (h / 4), 0);
+      }
+    } else if (style === 'industrial') {
+      addMesh(g, new THREE.BoxGeometry(w + 0.15, 0.28, d + 0.15), mat('#263238'), 0, h + 0.14, 0);
+      for (let i = 0; i < 5; i++) {
+        addMesh(g, new THREE.BoxGeometry(w + 0.02, 0.04, 0.08), mat('#37474F'), 0, 1.2 + i * 1.4, d / 2 + 0.05);
+      }
+    } else {
+      addMesh(g, new THREE.BoxGeometry(w + 0.1, 0.2, d + 0.1), roofMat, 0, h + 0.1, 0);
+      addMesh(g, new THREE.BoxGeometry(w * 0.7, 0.12, 0.08), mat('#E040FB', { emissive: '#E040FB', emissiveIntensity: 1.1 }), 0, h * 0.55, d / 2 + 0.06);
+    }
+
+    const doorX = roadSide > 0 ? -w / 2 - 0.05 : w / 2 + 0.05;
+    addMesh(g, new THREE.BoxGeometry(0.1, 1.75, 1.05), mat('#3E2723'), doorX, 0.88, 0.1);
+    addMesh(g, new THREE.BoxGeometry(0.08, 1.65, 0.95), mat('#5D4037', { roughness: 0.9 }), doorX + (roadSide > 0 ? -0.03 : 0.03), 0.88, 0.12);
+    addMesh(g, new THREE.SphereGeometry(0.06, 8, 8), mat('#FFD54F', { emissive: '#FFC107', emissiveIntensity: 0.5 }), doorX + (roadSide > 0 ? -0.02 : 0.02), 0.95, 0.62);
+
+    this.addFacadeWindows(g, roadSide, w, h, d, theme, rng);
+
+    if (!IS_MOBILE) {
+      const sideCols = Math.max(1, Math.floor(d / 1.8));
+      for (let col = 0; col < sideCols; col++) {
+        const z = -d / 2 + 0.8 + col * (d / sideCols);
+        const sideX = roadSide > 0 ? w / 2 + 0.03 : -w / 2 - 0.03;
+        for (const row of [1.8, 3.2, 4.8]) {
+          if (row > h - 0.8) continue;
+          this.addWindow(g, sideX, row, z, 0.5, 0.68, rng() > 0.4, theme);
         }
       }
     }
+
+    if (style === 'suburban' && rng() > 0.4) {
+      const hx = roadSide > 0 ? -w / 2 - 1.1 : w / 2 + 1.1;
+      addMesh(g, new THREE.BoxGeometry(1.6, 0.9, 0.12), mat('#A5D6A7', { roughness: 0.9 }), hx, 0.45, d * 0.2);
+      addMesh(g, new THREE.BoxGeometry(1.6, 0.9, 0.12), mat('#A5D6A7', { roughness: 0.9 }), hx, 0.45, -d * 0.2);
+    }
+
+    if (theme.id <= 2 && rng() > 0.55) {
+      const fx = roadSide > 0 ? -w / 2 - 0.8 : w / 2 + 0.8;
+      addMesh(g, new THREE.BoxGeometry(0.08, 0.65, 1.8), mat('#8D6E63'), fx, 0.33, 0);
+      addMesh(g, new THREE.BoxGeometry(0.06, 0.55, 1.6), mat('#A5D6A7', { roughness: 0.95 }), fx + (roadSide > 0 ? -0.12 : 0.12), 0.55, 0);
+    }
+
+    g.rotation.y = 0;
     return g;
   }
 
   private makeTree(rng: () => number): THREE.Group {
     const g = new THREE.Group();
-    addMesh(g, new THREE.CylinderGeometry(0.18, 0.26, 1.6, 8), mat('#5D4037'), 0, 0.8, 0);
-    addMesh(g, new THREE.ConeGeometry(1.3, 2.8, 8), mat('#43A047', { emissive: '#2E7D32', emissiveIntensity: 0.08 }), 0, 2.6, 0);
-    addMesh(g, new THREE.ConeGeometry(0.9, 1.8, 8), mat('#66BB6A'), 0, 3.5, 0);
+    const trunkH = 1.4 + rng() * 0.5;
+    addMesh(g, new THREE.CylinderGeometry(0.16, 0.24, trunkH, 8), mat('#5D4037', { roughness: 0.95 }), 0, trunkH / 2, 0);
+    addMesh(g, new THREE.SphereGeometry(0.14, 8, 8), mat('#4E342E'), 0, trunkH + 0.2, 0);
+    const greens = ['#43A047', '#66BB6A', '#2E7D32'];
+    for (let i = 0; i < 3; i++) {
+      const layer = addMesh(
+        g,
+        new THREE.ConeGeometry(1.35 - i * 0.22, 2.1 - i * 0.25, 8),
+        mat(greens[i % greens.length], { emissive: '#1B5E20', emissiveIntensity: 0.06 }),
+        0,
+        trunkH + 0.9 + i * 1.15,
+        0
+      );
+      layer.scale.set(1.05 - i * 0.08, 1, 1.05 - i * 0.08);
+    }
+    if (!IS_MOBILE) {
+      addMesh(g, new THREE.SphereGeometry(0.07, 6, 6), mat('#FF5252', { emissive: '#D50000', emissiveIntensity: 0.3 }), 0.35, trunkH + 1.1, 0.25);
+    }
     return g;
   }
 
-  private makeStreetLamp(): THREE.Group {
+  private makeStreetLamp(theme: DistrictTheme): THREE.Group {
     const g = new THREE.Group();
     g.userData.flicker = true;
-    addMesh(g, new THREE.CylinderGeometry(0.08, 0.1, 3.5, 8), mat('#455A64', { metalness: 0.6 }), 0, 1.75, 0);
-    addMesh(g, new THREE.SphereGeometry(0.22, 10, 10), mat('#FFFDE7', { emissive: '#FFD54F', emissiveIntensity: IS_MOBILE ? 1.6 : 1.2 }), 0, 3.6, 0);
-    if (!IS_MOBILE) {
-      const light = new THREE.PointLight(0xFFD54F, 0.6, 12);
-      light.position.set(0, 3.6, 0);
-      g.add(light);
-      g.userData.flickerLight = light;
-    }
+    addMesh(g, new THREE.CylinderGeometry(0.07, 0.1, 3.6, 8), mat('#455A64', { metalness: 0.65, roughness: 0.35 }), 0, 1.8, 0);
+    addMesh(g, new THREE.BoxGeometry(0.65, 0.08, 0.08), mat('#37474F', { metalness: 0.55 }), 0.28, 3.45, 0);
+    const bulb = addMesh(
+      g,
+      new THREE.SphereGeometry(0.2, 10, 10),
+      mat(theme.id >= 4 ? '#E1BEE7' : '#FFFDE7', {
+        emissive: theme.id >= 4 ? '#EA80FC' : '#FFD54F',
+        emissiveIntensity: 1.5,
+      }),
+      0.48,
+      3.38,
+      0
+    );
+    bulb.userData.isBulb = true;
+    g.userData.flickerBulb = bulb;
     return g;
   }
 
   private makeMailbox(): THREE.Group {
     const g = new THREE.Group();
-    addMesh(g, new THREE.BoxGeometry(0.5, 1.1, 0.45), mat('#1565C0'), 0, 0.55, 0);
-    addMesh(g, new THREE.CylinderGeometry(0.04, 0.04, 0.55, 6), mat('#78909C', { metalness: 0.7 }), 0, 1.15, 0.15);
+    addMesh(g, new THREE.CylinderGeometry(0.05, 0.06, 0.7, 8), mat('#78909C', { metalness: 0.7 }), 0, 0.35, 0);
+    addMesh(g, new THREE.BoxGeometry(0.55, 0.75, 0.42), mat('#1565C0', { roughness: 0.55 }), 0, 0.82, 0);
+    addMesh(g, new THREE.BoxGeometry(0.58, 0.1, 0.44), mat('#0D47A1'), 0, 1.22, 0);
+    addMesh(g, new THREE.BoxGeometry(0.12, 0.18, 0.06), mat('#FFD54F', { emissive: '#FFC107', emissiveIntensity: 0.45 }), 0.2, 1.05, 0.24);
+    const flag = addMesh(g, new THREE.BoxGeometry(0.22, 0.14, 0.03), mat('#E53935', { emissive: '#FF1744', emissiveIntensity: 0.35 }), 0.28, 1.18, 0.18);
+    flag.rotation.z = -0.55;
     return g;
   }
 
@@ -358,37 +667,21 @@ export class World {
     this.rootMeshes.push(g);
   }
 
-  private setupLighting(theme: DistrictTheme, levelLength: number): void {
-    const hemi = new THREE.HemisphereLight(theme.sky, theme.ground, theme.ambient * 0.9);
-    hemi.name = 'hemi';
-    this.scene.add(hemi);
+  private setupLighting(theme: DistrictTheme, _levelLength: number): void {
+    this.hemiLight = new THREE.HemisphereLight(theme.sky, theme.ground, theme.ambient * 0.9);
+    this.hemiLight.name = 'hemi';
+    this.scene.add(this.hemiLight);
 
-    const ambient = new THREE.AmbientLight(0xffffff, theme.ambient * 0.35);
-    ambient.name = 'ambient';
-    this.scene.add(ambient);
+    this.ambientLight = new THREE.AmbientLight(0xffffff, theme.ambient * 0.35);
+    this.ambientLight.name = 'ambient';
+    this.scene.add(this.ambientLight);
 
-    const sun = new THREE.DirectionalLight(0xfff0d4, theme.sun * (IS_MOBILE ? 1.15 : 1));
-    sun.position.set(20, 45, -25);
-    sun.castShadow = !IS_MOBILE;
-    if (!IS_MOBILE) {
-      sun.shadow.mapSize.set(1024, 1024);
-      sun.shadow.camera.near = 1;
-      sun.shadow.camera.far = 250;
-      sun.shadow.camera.left = -35;
-      sun.shadow.camera.right = 35;
-      sun.shadow.camera.top = 35;
-      sun.shadow.camera.bottom = -35;
-    }
-    sun.name = 'sun';
-    this.scene.add(sun);
-    this.scene.add(sun.target);
-
-    if (theme.id >= 4 && !IS_MOBILE) {
-      const neon = new THREE.PointLight(0xff00ff, 2.5, 55);
-      neon.position.set(0, 12, levelLength * 0.45);
-      neon.name = 'neon';
-      this.scene.add(neon);
-    }
+    this.sunLight = new THREE.DirectionalLight(0xfff0d4, theme.sun);
+    this.sunLight.position.set(20, 45, -25);
+    this.sunLight.castShadow = false;
+    this.sunLight.name = 'sun';
+    this.scene.add(this.sunLight);
+    this.scene.add(this.sunLight.target);
   }
 
   setPlayerZ(z: number, dt: number): void {
@@ -406,20 +699,25 @@ export class World {
     }
   }
 
-  /** Move shadow sun with the player so the shadow frustum stays tight on desktop */
+  /** Move sun with player for consistent lighting */
   followSun(playerX: number, playerZ: number): void {
-    const sun = this.scene.getObjectByName('sun') as THREE.DirectionalLight | undefined;
-    if (!sun || !sun.castShadow) return;
-    sun.position.set(playerX + 18, 42, playerZ - 22);
-    sun.target.position.set(playerX, 0, playerZ + 35);
-    sun.target.updateMatrixWorld();
+    if (!this.sunLight) return;
+    this.sunLight.position.set(playerX + 18, 42, playerZ - 22);
+    this.sunLight.target.position.set(playerX, 0, playerZ + 35);
+    this.sunLight.target.updateMatrixWorld();
   }
 
-  update(time: number, playerZ = this.playerZ): void {
-    if (this.roadTexture) {
+  update(time: number, playerZ = this.playerZ, dt = 0.016): void {
+    this.updateSkyCycle(time, dt);
+    if (this.roadTexture && !IS_MOBILE) {
       this.roadTexture.offset.y = -time * 0.15;
     }
-    const animRange = IS_MOBILE ? 45 : 65;
+    if (!IS_MOBILE && this.rootMeshes[0]?.userData.isTerrain) {
+      const grass = this.rootMeshes[0] as THREE.Mesh;
+      const gMat = grass.material as THREE.MeshStandardMaterial;
+      if (gMat.map) gMat.map.offset.y = -playerZ * 0.02;
+    }
+    const animRange = IS_MOBILE ? 38 : 55;
     for (const p of this.animProps) {
       if (Math.abs(p.worldZ - playerZ) > animRange) continue;
       switch (p.kind) {
@@ -433,9 +731,16 @@ export class World {
           p.obj.position.x += Math.sin(time * 0.1 + p.phase) * 0.008;
           p.obj.position.y = p.baseY + Math.sin(time * p.speed + p.phase) * 0.4;
           break;
-        case 'flicker':
-          if (p.light) p.light.intensity = 0.45 + Math.sin(time * p.speed + p.phase) * 0.25;
+        case 'flicker': {
+          const glow = 0.85 + Math.sin(time * p.speed + p.phase) * 0.35;
+          if (p.bulb) {
+            const m = p.bulb.material as THREE.MeshStandardMaterial;
+            m.emissiveIntensity = glow;
+          } else if (p.light) {
+            p.light.intensity = 0.45 + Math.sin(time * p.speed + p.phase) * 0.25;
+          }
           break;
+        }
       }
     }
   }
@@ -452,6 +757,8 @@ export class World {
       this.skyTexture.dispose();
       this.skyTexture = null;
     }
+    this.skyCanvas = null;
+    this.skyPhase = -1;
     for (const name of ['hemi', 'ambient', 'sun', 'neon']) {
       const obj = this.scene.getObjectByName(name);
       if (obj) this.scene.remove(obj);

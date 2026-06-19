@@ -3,21 +3,9 @@ import type { BlockerKind, GateOption } from '../types';
 import { addMesh, mat } from './ModelUtils';
 import { IS_MOBILE } from './platform';
 
-function addGatePillar(group: THREE.Group, x: number, accent: string): void {
-  addMesh(group, new THREE.CylinderGeometry(0.2, 0.24, 4.4, 12), mat('#CFD8DC', { metalness: 0.45, roughness: 0.4 }), x, 2.2, 0);
-  addMesh(group, new THREE.CylinderGeometry(0.22, 0.22, 0.12, 12), mat(accent, { emissive: accent, emissiveIntensity: 0.5 }), x, 0.06, 0);
-  for (const y of [0.8, 1.6, 2.4, 3.2]) {
-    addMesh(group, new THREE.BoxGeometry(0.08, 0.06, 0.08), mat(accent, { emissive: accent, emissiveIntensity: 0.85 }), x, y, 0.14);
-  }
-  addMesh(
-    group,
-    new THREE.SphereGeometry(0.26, 12, 12),
-    mat('#FFD54F', { emissive: '#FFA000', emissiveIntensity: 0.65, metalness: 0.3 }),
-    x,
-    4.45,
-    0
-  );
-}
+const GATE_PASS = '#43A047';
+const GATE_DIE = '#E53935';
+const FRAME_COLOR = '#ffffff';
 
 export type GateEntity = {
   kind: 'route';
@@ -74,97 +62,18 @@ export function createRouteGate(
   group.position.set(0, 0, z);
 
   const leftSafe = safeSide === 'left';
-  const leftLabelText = leftSafe ? '✓ SAFE PATH' : '✗ DEAD END';
-  const rightLabelText = safeSide === 'right' ? '✓ SAFE PATH' : '✗ DEAD END';
-  const leftColor = leftSafe ? '#43A047' : '#C62828';
-  const rightColor = safeSide === 'right' ? '#1E88E5' : '#C62828';
-
-  const leftGate = makeRouteBooth(3.2, leftLabelText, leftColor, leftSafe);
-  const rightGate = makeRouteBooth(-3.2, rightLabelText, rightColor, safeSide === 'right');
-
-  group.add(leftGate.booth, rightGate.booth, leftGate.label, rightGate.label);
-
-  for (const [x, accent, safe] of [
-    [3.2, leftColor, leftSafe],
-    [-3.2, rightColor, safeSide === 'right'],
-  ] as const) {
-    addGatePillar(group, x, accent);
-    if (!safe) {
-      addMesh(
-        group,
-        new THREE.BoxGeometry(2.8, 3.2, 0.35),
-        mat('#B71C1C', { emissive: '#FF1744', emissiveIntensity: 0.55 }),
-        x,
-        1.6,
-        1.2
-      );
-    }
-  }
-
-  addMesh(
-    group,
-    new THREE.TorusGeometry(5.2, 0.14, 10, 32, Math.PI),
-    mat('#FFD54F', { emissive: '#FFA000', emissiveIntensity: 0.45, metalness: 0.5 }),
-    0,
-    4.15,
-    0
-  );
-  addMesh(group, new THREE.BoxGeometry(10.8, 0.35, 0.4), mat('#37474F', { metalness: 0.55 }), 0, 4.0, 0);
-
-  const forkBanner = makeTextSprite('PICK A LANE — WRONG = DEATH', '#FF1744', 'rgba(80,0,0,0.92)');
-  forkBanner.position.set(0, 4.8, 0);
-  forkBanner.scale.set(4.5, 0.9, 1);
-  group.add(forkBanner);
-
-  for (let i = 0; i < 6; i++) {
-    const chev = addMesh(
-      group,
-      new THREE.BoxGeometry(0.5, 0.02, 0.25),
-      mat(leftSafe ? '#00E676' : '#FF1744', { emissive: leftSafe ? '#00E676' : '#FF1744', emissiveIntensity: 0.45 }),
-      3.2,
-      0.02,
-      1.5 - i * 0.55,
-      false
-    );
-    chev.rotation.y = Math.PI / 4;
-    const chevR = addMesh(
-      group,
-      new THREE.BoxGeometry(0.5, 0.02, 0.25),
-      mat(safeSide === 'right' ? '#00E676' : '#FF1744', { emissive: safeSide === 'right' ? '#00E676' : '#FF1744', emissiveIntensity: 0.45 }),
-      -3.2,
-      0.02,
-      1.5 - i * 0.55,
-      false
-    );
-    chevR.rotation.y = -Math.PI / 4;
-  }
+  const leftGate = makeSimpleGatePanel(2.35, leftSafe);
+  const rightGate = makeSimpleGatePanel(-2.35, safeSide === 'right');
+  group.add(leftGate.panel, rightGate.panel);
 
   const centerWall = addMesh(
     group,
-    new THREE.BoxGeometry(2.4, 3.4, 0.55),
-    mat('#37474F', { emissive: '#FFEB3B', emissiveIntensity: 0.45, metalness: 0.35 }),
+    new THREE.BoxGeometry(0.18, 3.5, 0.12),
+    mat('#37474F', { roughness: 0.8 }),
     0,
-    1.7,
-    0.2
+    1.75,
+    0.05
   );
-  addMesh(group, new THREE.BoxGeometry(2.6, 0.14, 0.58), mat('#FFEB3B', { emissive: '#FFC107', emissiveIntensity: 0.75 }), 0, 3.45, 0.2);
-  addMesh(
-    group,
-    new THREE.BoxGeometry(0.14, 3.2, 0.12),
-    mat('#FF1744', { emissive: '#FF1744', emissiveIntensity: 0.8 }),
-    0,
-    1.6,
-    0.5
-  );
-
-  if (!IS_MOBILE) {
-    const beaconL = new THREE.PointLight(leftSafe ? 0x66bb6a : 0xff1744, 1.2, 12);
-    beaconL.position.set(3.2, 2.5, 0);
-    group.add(beaconL);
-    const beaconR = new THREE.PointLight(safeSide === 'right' ? 0x42a5f5 : 0xff1744, 1.2, 12);
-    beaconR.position.set(-3.2, 2.5, 0);
-    group.add(beaconR);
-  }
 
   scene.add(group);
 
@@ -174,8 +83,8 @@ export function createRouteGate(
     z,
     safeSide,
     resolved: false,
-    leftMesh: leftGate.booth,
-    rightMesh: rightGate.booth,
+    leftMesh: leftGate.panel,
+    rightMesh: rightGate.panel,
     leftLabel: leftGate.label,
     rightLabel: rightGate.label,
     centerWall,
@@ -352,39 +261,57 @@ export function createDropoff(scene: THREE.Scene, z: number): DropoffEntity {
   return { kind: 'dropoff', mesh: group, z, reached: false, platform };
 }
 
-function makeRouteBooth(x: number, label: string, color: string, safe: boolean) {
-  const booth = new THREE.Group();
-  booth.position.set(x, 0, 0);
+function makeSimpleGatePanel(x: number, safe: boolean) {
+  const panel = new THREE.Group();
+  panel.position.set(x, 1.85, 0.08);
 
-  addMesh(booth, new THREE.BoxGeometry(2.4, 2.8, 1.1), mat('#37474F', { metalness: 0.4, roughness: 0.5 }), 0, 1.4, 0);
-  addMesh(booth, new THREE.BoxGeometry(2.5, 0.15, 1.2), mat(color, { emissive: color, emissiveIntensity: safe ? 0.5 : 0.35 }), 0, 2.85, 0);
-  addMesh(
-    booth,
-    new THREE.BoxGeometry(1.8, 1.2, 0.06),
-    mat(color, { emissive: color, emissiveIntensity: safe ? 0.65 : 0.4 }),
-    0,
-    1.7,
-    0.58
+  const tex = makeGatePanelTexture(safe);
+  const mesh = new THREE.Mesh(
+    new THREE.PlaneGeometry(4.15, 3.55),
+    new THREE.MeshBasicMaterial({
+      map: tex,
+      transparent: true,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+    })
   );
+  panel.add(mesh);
 
-  const arm = addMesh(booth, new THREE.BoxGeometry(1.6, 0.1, 0.1), mat(safe ? '#FFD54F' : '#FF1744', { emissive: safe ? '#FFC107' : '#FF1744', emissiveIntensity: 0.5 }), 0, 2.2, 0.9);
-  arm.rotation.y = x > 0 ? -0.55 : 0.55;
-  addMesh(
-    arm,
-    new THREE.SphereGeometry(0.12, 10, 10),
-    mat(safe ? '#00E676' : '#FF1744', { emissive: safe ? '#00E676' : '#FF1744', emissiveIntensity: 0.85 }),
-    x > 0 ? -0.75 : 0.75,
-    0,
-    0
-  );
+  const placeholder = new THREE.Sprite(new THREE.SpriteMaterial({ visible: false }));
+  placeholder.position.set(x, 3.2, 0);
 
-  addMesh(booth, new THREE.BoxGeometry(2.6, 0.08, 1.3), mat('#263238'), 0, 0.04, 0);
+  return { panel, label: placeholder };
+}
 
-  const sprite = makeTextSprite(label, '#fff', safe ? 'rgba(0,80,30,0.9)' : 'rgba(100,0,0,0.92)');
-  sprite.position.set(x, 3.85, 0);
-  sprite.scale.set(4.2, 1, 1);
+function makeGatePanelTexture(safe: boolean): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 128;
+  canvas.height = 176;
+  const ctx = canvas.getContext('2d')!;
+  const fill = safe ? GATE_PASS : GATE_DIE;
 
-  return { booth, label: sprite };
+  ctx.fillStyle = fill;
+  ctx.globalAlpha = 0.88;
+  ctx.beginPath();
+  ctx.roundRect(8, 8, 112, 160, 8);
+  ctx.fill();
+  ctx.globalAlpha = 1;
+
+  ctx.strokeStyle = FRAME_COLOR;
+  ctx.lineWidth = 5;
+  ctx.beginPath();
+  ctx.roundRect(8, 8, 112, 160, 8);
+  ctx.stroke();
+
+  ctx.strokeStyle = 'rgba(0,0,0,0.25)';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.roundRect(12, 12, 104, 152, 6);
+  ctx.stroke();
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
 }
 
 function makeTextSprite(text: string, textColor: string, bg: string): THREE.Sprite {
@@ -400,7 +327,7 @@ function makeTextSprite(text: string, textColor: string, bg: string): THREE.Spri
   ctx.lineWidth = 2;
   ctx.stroke();
   ctx.fillStyle = textColor;
-  ctx.font = 'bold 34px Segoe UI, sans-serif';
+  ctx.font = 'bold 72px Segoe UI, sans-serif';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.fillText(text, 256, 64);
@@ -411,20 +338,11 @@ function makeTextSprite(text: string, textColor: string, bg: string): THREE.Spri
 
 export function animateGate(gate: GateEntity, time: number): void {
   gate.animTime = time;
-  const pulse = 1 + Math.sin(time * 4) * 0.03;
+  const pulse = 1 + Math.sin(time * 3.5) * 0.018;
   gate.leftMesh.scale.set(pulse, pulse, pulse);
   gate.rightMesh.scale.set(pulse, pulse, pulse);
-  gate.leftLabel.position.y = 3.85 + Math.sin(time * 3) * 0.06;
-  gate.rightLabel.position.y = 3.85 + Math.sin(time * 3 + 1) * 0.06;
 
-  if (!gate.resolved) {
-    gate.centerWall.visible = true;
-    gate.centerWall.position.y = 1.7 + Math.sin(time * 5) * 0.04;
-    (gate.centerWall.material as THREE.MeshStandardMaterial).emissiveIntensity =
-      0.35 + Math.sin(time * 6) * 0.2;
-  } else {
-    gate.centerWall.visible = false;
-  }
+  gate.centerWall.visible = !gate.resolved;
 }
 
 export function animateBlocker(b: BlockerEntity, time: number): void {

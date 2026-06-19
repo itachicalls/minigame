@@ -1,4 +1,4 @@
-import { DEFAULT_SAVE, type SaveData } from '../types';
+import { DEFAULT_SAVE, type SaveData, type MailmanId } from '../types';
 
 const KEY = 'last-mile-save';
 
@@ -75,6 +75,11 @@ export class SaveManager {
 
   equipAbility(id: string | null): void {
     this.data.equippedAbility = id as SaveData['equippedAbility'];
+    this.save();
+  }
+
+  setCharacter(id: MailmanId): void {
+    this.data.selectedCharacter = id;
     this.save();
   }
 

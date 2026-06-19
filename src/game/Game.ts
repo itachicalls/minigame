@@ -58,7 +58,8 @@ import {
   packageSpacing,
 } from './Spawner';
 import { ParticleSystem, CameraShake } from './Effects';
-import { getPixelRatio, IS_MOBILE, isNearZ } from './platform';
+import { getPixelRatio, IS_MOBILE, isNearZ, ENABLE_SHADOWS, ENABLE_ANTIALIAS, ENABLE_TONE_MAPPING } from './platform';
+import { getCharacter } from '../data/characters';
 import { getLevel } from '../data/levels';
 import { getDistrict } from '../data/districts';
 import type { SaveData, RunState, GameResult, LevelDef, DeathReason } from '../types';
@@ -82,6 +83,9 @@ export type HudData = {
   timeLeft: number;
   abilityCd: number;
   abilityReady: boolean;
+  specialCharge: number;
+  specialReady: boolean;
+  specialShakes: number;
   shootReady: boolean;
   jumpReady: boolean;
   forkHint?: string;
@@ -141,6 +145,11 @@ export class Game {
   private startPackages = 0;
   private pickupRadius = 2.2;
 
+  private specialCharge = 0;
+  private specialShakesLeft = 0;
+  private specialShakeTimer = 0;
+  private readonly quakeRadius = 7.5;
+
   private invincibleTimer = 0;
   private slowMoTimer = 0;
   private fastShotTimer = 0;
@@ -173,18 +182,27 @@ export class Game {
 
     this.renderer = new THREE.WebGLRenderer({
       canvas,
-      antialias: !IS_MOBILE,
-      powerPreference: 'high-performance',
+      antialias: ENABLE_ANTIALIAS,
+      powerPreference: IS_MOBILE ? 'low-power' : 'high-performance',
+      stencil: false,
+      depth: true,
+      alpha: false,
+      precision: IS_MOBILE ? 'mediump' : 'highp',
     });
     this.renderer.setPixelRatio(getPixelRatio());
-    this.renderer.shadowMap.enabled = !IS_MOBILE;
-    this.renderer.shadowMap.type = IS_MOBILE ? THREE.BasicShadowMap : THREE.PCFSoftShadowMap;
-    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.22;
+    this.renderer.shadowMap.enabled = ENABLE_SHADOWS;
+    this.renderer.shadowMap.type = THREE.BasicShadowMap;
+    if (ENABLE_TONE_MAPPING) {
+      this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+      this.renderer.toneMappingExposure = 1.15;
+    } else {
+      this.renderer.toneMapping = THREE.NoToneMapping;
+    }
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.sortObjects = false;
+    this.renderer.info.autoReset = true;
     this.scene = new THREE.Scene();
-    this.camera = new THREE.PerspectiveCamera(55, 1, 0.1, IS_MOBILE ? 160 : 280);
+    this.camera = new THREE.PerspectiveCamera(55, 1, 0.1, IS_MOBILE ? 150 : 180);
     this.world = new World(this.scene);
     this.particles = new ParticleSystem(this.scene);
     this.shake = new CameraShake();
@@ -230,7 +248,7 @@ export class Game {
     const onTap = (e: PointerEvent) => {
       if (!this.running || this.dead) return;
       const t = e.target as HTMLElement;
-      if (t.closest('#steer-left, #steer-right, #ability-btn, #jump-btn, #shoot-btn, .hud-panel, .btn')) return;
+      if (t.closest('#steer-left, #steer-right, #ability-btn, #special-btn, #jump-btn, #shoot-btn, .hud-panel, .btn')) return;
       this.shoot();
     };
     hudEl.addEventListener('pointerdown', onTap);
@@ -269,6 +287,9 @@ export class Game {
     this.turboTimer = 0;
     this.blurTimer = 0;
     this.timeScale = 1;
+    this.specialCharge = 0;
+    this.specialShakesLeft = 0;
+    this.specialShakeTimer = 0;
     this.touchSteerLeft = false;
     this.touchSteerRight = false;
 
@@ -318,13 +339,13 @@ export class Game {
     const theme = getDistrict(level.district);
     this.world.build(theme, this.levelLength);
 
-    this.player = new Player(this.scene);
+    this.player = new Player(this.scene, getCharacter(this.save.selectedCharacter ?? 'johnny'));
     this.player.setJumpPower(12 + (this.save.purchases['jump-boots'] ?? 0) * 1.4);
     this.player.z = 0;
     this.player.targetX = 0;
     this.player.x = 0;
     this.convoy = new Convoy(this.scene);
-    this.convoy.setCount(this.run.convoy);
+    this.convoy.setCount(IS_MOBILE ? 0 : 2);
 
     for (const seg of level.segments) {
       if (seg.kind === 'gate') {
@@ -350,6 +371,14 @@ export class Game {
   private bindKeyboard(): void {
     window.addEventListener('keydown', (e) => {
       this.keys.add(e.code);
+      if (e.code === 'KeyE') {
+        e.preventDefault();
+        if (!e.repeat) this.useSpecialQuake();
+      }
+      if (e.code === 'KeyQ') {
+        e.preventDefault();
+        if (!e.repeat) this.useAbility();
+      }
       if (e.code === 'Space') {
         e.preventDefault();
         if (!e.repeat) this.jump();
@@ -425,6 +454,16 @@ export class Game {
       }
     }
     return best;
+  }
+
+  useSpecialQuake(): void {
+    if (!this.running || this.dead || this.specialShakesLeft > 0) return;
+    if (this.specialCharge < 1) return;
+    this.specialCharge = 0;
+    this.specialShakesLeft = 3;
+    this.specialShakeTimer = 0;
+    this.cb.onToast('💥 GROUND QUAKE ×3!');
+    this.emitHud(this.level.timeLimit - this.elapsed);
   }
 
   useAbility(): void {
@@ -512,6 +551,8 @@ export class Game {
 
     this.player.z += this.run.speed * scaledDt;
     this.run.distance = this.player.z;
+    this.specialCharge = Math.min(1, this.specialCharge + this.run.speed * scaledDt * 0.0005);
+    this.updateSpecialQuake(dt);
 
     if (this.keys.has('ArrowLeft') || this.keys.has('KeyA') || this.touchSteerLeft) {
       this.player.targetX += this.steerSpeed * dt;
@@ -523,7 +564,7 @@ export class Game {
 
     this.player.update(dt, this.roadHalfWidth, true);
     if (this.run.convoy !== this.lastConvoyCount) {
-      this.convoy.setCount(this.run.convoy);
+      this.convoy.setCount(IS_MOBILE ? 0 : Math.min(2, this.run.convoy));
       this.lastConvoyCount = this.run.convoy;
     }
     this.convoy.update(this.player.x, this.player.z, this.gameTime);
@@ -533,7 +574,11 @@ export class Game {
 
     const pz = this.player.z;
     this.world.setPlayerZ(pz, dt);
-    this.world.followSun(this.player.x, pz);
+    this.sunTick += dt;
+    if (this.sunTick >= (IS_MOBILE ? 0.1 : 0.05)) {
+      this.sunTick = 0;
+      this.world.followSun(this.player.x, pz);
+    }
 
     updateCoins(this.coins, dt, this.gameTime, pz);
     updatePackagePickups(this.packagePickups, this.gameTime, pz);
@@ -541,12 +586,12 @@ export class Game {
     updateRunners(this.runners, scaledDt, this.gameTime, 1, pz);
     this.throws = updateThrows(this.throws, dt, this.scene);
     this.particles.update(dt);
-    this.world.update(this.gameTime, pz);
+    this.world.update(this.gameTime, pz, dt);
 
     for (const g of this.routeGates) {
-      if (!g.resolved && isNearZ(g.z, pz, 90)) animateGate(g, this.gameTime);
+      if (!g.resolved && isNearZ(g.z, pz, IS_MOBILE ? 42 : 55)) animateGate(g, this.gameTime);
     }
-    if (this.dropoff && isNearZ(this.dropoff.z, pz, 90)) animateDropoff(this.dropoff, this.gameTime);
+    if (this.dropoff && isNearZ(this.dropoff.z, pz, IS_MOBILE ? 42 : 55)) animateDropoff(this.dropoff, this.gameTime);
     updateObstacles(this.obstacles, this.gameTime, pz);
 
     const coinGain = tryCollectCoin(this.coins, this.player.x, this.player.z, this.pickupRadius);
@@ -581,7 +626,7 @@ export class Game {
     }
 
     this.hudTimer += dt;
-    const hudInterval = IS_MOBILE ? 0.1 : 0.05;
+    const hudInterval = IS_MOBILE ? 0.12 : 0.08;
     if (this.hudTimer >= hudInterval) {
       this.hudTimer = 0;
       this.emitHud(timeLeft);
@@ -628,6 +673,9 @@ export class Game {
       timeLeft,
       abilityCd: this.abilityCd,
       abilityReady: this.abilityCd <= 0 && !!this.save.equippedAbility,
+      specialCharge: this.specialCharge,
+      specialReady: this.specialCharge >= 1 && this.specialShakesLeft <= 0,
+      specialShakes: this.specialShakesLeft,
       shootReady: this.shootCd <= 0,
       jumpReady: !this.player.isJumping,
       forkHint: this.forkHint || undefined,
@@ -637,21 +685,25 @@ export class Game {
     });
   }
 
+  private sunTick = 0;
+
   private proceduralSpawn(): void {
     const diff = this.level.difficulty;
-    const spawnAhead = IS_MOBILE ? 85 : 115;
+    const spawnAhead = IS_MOBILE ? 72 : 92;
     const ahead = this.player.z + spawnAhead;
-    const maxPerFrame = IS_MOBILE ? 1 : 2;
+    const maxPerFrame = 1;
 
-    const maxObstacles = IS_MOBILE ? 18 : 28;
-    const maxRunners = IS_MOBILE ? 6 : 10;
-    const maxPowerUps = IS_MOBILE ? 8 : 14;
+    const maxObstacles = IS_MOBILE ? 14 : 18;
+    const maxRunners = IS_MOBILE ? 5 : 7;
+    const maxPowerUps = IS_MOBILE ? 6 : 10;
 
     let obsN = 0;
     while (this.nextObstacleZ < ahead && this.nextObstacleZ < this.spawnHorizon && obsN < maxPerFrame) {
       if (this.obstacles.length >= maxObstacles) break;
-      for (const lane of pickObstacleLanes()) {
-        this.obstacles.push(createObstacle(this.scene, pickRandomObstacle(), lane, this.nextObstacleZ));
+      const lanes = pickObstacleLanes();
+      const laneLimit = IS_MOBILE ? 1 : lanes.length;
+      for (let i = 0; i < laneLimit; i++) {
+        this.obstacles.push(createObstacle(this.scene, pickRandomObstacle(), lanes[i], this.nextObstacleZ));
       }
       this.nextObstacleZ += obstacleSpacing(diff) + Math.random() * 6;
       obsN++;
@@ -685,6 +737,55 @@ export class Game {
       this.nextCoinZ += IS_MOBILE ? 28 + Math.random() * 20 : 22 + Math.random() * 18;
       coinN++;
     }
+  }
+
+  private addSpecialCharge(amount: number): void {
+    this.specialCharge = Math.min(1, this.specialCharge + amount);
+  }
+
+  private updateSpecialQuake(dt: number): void {
+    if (this.specialShakesLeft <= 0) return;
+    this.specialShakeTimer -= dt;
+    if (this.specialShakeTimer > 0) return;
+    this.executeQuakePulse();
+    this.specialShakesLeft--;
+    this.specialShakeTimer = this.specialShakesLeft > 0 ? 0.38 : 0;
+  }
+
+  private executeQuakePulse(): void {
+    this.shake.shake(1.5);
+    const px = this.player.x;
+    const pz = this.player.z;
+    const r2 = this.quakeRadius * this.quakeRadius;
+
+    for (const obs of this.obstacles) {
+      if (obs.hit) continue;
+      const dx = obs.x - px;
+      const dz = obs.z - pz;
+      if (dx * dx + dz * dz <= r2) {
+        obs.hit = true;
+        obs.mesh.visible = false;
+        this.particles.hitBurst(obs.x, obs.z);
+      }
+    }
+
+    const killed: RunnerEntity[] = [];
+    for (const r of this.runners) {
+      if (!r.alive) continue;
+      const dx = r.x - px;
+      const dz = r.z - pz;
+      if (dx * dx + dz * dz <= r2) {
+        this.run.coins += r.tier === 'stalker' ? 15 : r.tier === 'raider' ? 10 : 5;
+        killed.push(r);
+        this.particles.hitBurst(r.x, r.z);
+      }
+    }
+    for (const r of killed) {
+      disposeRunner(r, this.scene);
+      this.runners = this.runners.filter((x) => x !== r);
+    }
+
+    this.particles.gateBurst(px, pz, '#FF9800');
   }
 
   private cullBehind(): void {
@@ -735,6 +836,7 @@ export class Game {
           t.life = 0;
           if (r.hp <= 0) {
             this.run.coins += r.tier === 'stalker' ? 15 : r.tier === 'raider' ? 10 : 5;
+            this.addSpecialCharge(0.2);
             disposeRunner(r, this.scene);
             this.runners = this.runners.filter((x) => x !== r);
           }
@@ -820,7 +922,7 @@ export class Game {
 
       const dist = gate.z - this.player.z;
       if (dist > 0 && dist < 32) {
-        this.forkHint = '⚠ FORK AHEAD — SWERVE!';
+        this.forkHint = '⚠ FORK!';
       }
 
       if (this.player.z >= gate.z - 3 && this.player.z <= gate.z + 2) {
@@ -919,7 +1021,7 @@ export class Game {
     this.renderer.setPixelRatio(getPixelRatio());
     this.renderer.setSize(w, h, false);
     this.camera.aspect = w / h;
-    this.camera.far = IS_MOBILE ? 160 : 280;
+    this.camera.far = IS_MOBILE ? 150 : 180;
     this.camera.updateProjectionMatrix();
   }
 

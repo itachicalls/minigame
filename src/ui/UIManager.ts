@@ -5,7 +5,10 @@ import { DISTRICTS } from '../data/districts';
 import { SHOP_ITEMS, SHOP_SECTIONS, itemCost } from '../data/shop';
 import { nextLevelId } from '../data/levels';
 import type { GameResult } from '../types';
+import { CHARACTERS } from '../data/characters';
+import type { MailmanId } from '../types';
 import { menuBackdropHtml } from './menuBackdrop';
+import { mountCharacterPreview } from './CharacterPreview';
 
 type Screen = 'menu' | 'levels' | 'shop' | 'briefing' | 'game' | 'results';
 
@@ -56,12 +59,26 @@ export class UIManager {
     this.setCanvasVisible(false);
     this.clear();
     const s = this.save.get();
+    const selected = s.selectedCharacter ?? 'johnny';
+    const characterCards = CHARACTERS.map(
+      (c) => `
+        <button type="button" class="character-card ${selected === c.id ? 'selected' : ''}" data-id="${c.id}" aria-pressed="${selected === c.id}">
+          <div class="character-preview" data-preview="${c.id}" aria-hidden="true"></div>
+          <span class="character-name">${c.name}</span>
+          <span class="character-tag">${c.tagline}</span>
+        </button>`
+    ).join('');
+
     const screen = this.wrapScreen(`
       <div class="screen menu-screen screen-glass">
         <div class="logo-wrap">
           <div class="logo-icon">📦</div>
           <h1>Last Mile</h1>
           <p class="tagline">Courier Rush</p>
+        </div>
+        <div class="character-select">
+          <p class="character-select-label">Choose your mailman</p>
+          <div class="character-cards">${characterCards}</div>
         </div>
         <div class="menu-stats">
           <div class="stat-pill"><span>🪙</span> ${s.coins}</div>
@@ -75,6 +92,25 @@ export class UIManager {
       </div>
     `);
     this.root.appendChild(screen);
+
+    screen.querySelectorAll('.character-preview').forEach((el) => {
+      const id = (el as HTMLElement).dataset.preview as MailmanId;
+      mountCharacterPreview(el as HTMLElement, id);
+    });
+
+    screen.querySelectorAll('.character-card').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const id = (btn as HTMLElement).dataset.id as MailmanId;
+        this.save.setCharacter(id);
+        screen.querySelectorAll('.character-card').forEach((el) => {
+          const card = el as HTMLElement;
+          const on = card.dataset.id === id;
+          card.classList.toggle('selected', on);
+          card.setAttribute('aria-pressed', String(on));
+        });
+      });
+    });
+
     screen.querySelector('#btn-play')!.addEventListener('click', () => this.showLevels());
     screen.querySelector('#btn-shop')!.addEventListener('click', () => this.showShop());
     screen.querySelector('#btn-reset')!.addEventListener('click', () => {
@@ -301,7 +337,13 @@ export class UIManager {
             <span id="shoot-label">SHOOT</span>
             <div class="ability-cd hidden" id="shoot-cd"></div>
           </button>
-          <button class="action-btn ability-btn" id="ability-btn" disabled title="Equipped ability">
+          <button class="action-btn special-btn" id="special-btn" title="Ground Quake (E) — 3 hits">
+            <div class="special-meter"><div class="special-fill" id="special-fill"></div></div>
+            <span class="action-icon">💥</span>
+            <span id="special-label">QUAKE</span>
+            <span class="special-count hidden" id="special-shakes"></span>
+          </button>
+          <button class="action-btn ability-btn" id="ability-btn" disabled title="Shop ability (Q)">
             <span class="action-icon">⚡</span>
             <span id="ability-label">Ability</span>
             <div class="ability-cd hidden" id="ability-cd"></div>
@@ -354,6 +396,12 @@ export class UIManager {
       e.preventDefault();
       e.stopPropagation();
       this.game?.shoot();
+    });
+
+    document.getElementById('special-btn')!.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      this.game?.useSpecialQuake();
     });
 
     btn.addEventListener('pointerdown', (e) => e.stopPropagation());
@@ -431,6 +479,26 @@ export class UIManager {
     if (d.shootReady !== this.hudCache.shootReady) {
       document.getElementById('shoot-btn')?.classList.toggle('ready', d.shootReady);
       document.getElementById('shoot-cd')?.classList.toggle('hidden', d.shootReady);
+    }
+
+    if (
+      d.specialCharge !== this.hudCache.specialCharge ||
+      d.specialReady !== this.hudCache.specialReady ||
+      d.specialShakes !== this.hudCache.specialShakes
+    ) {
+      const fill = document.getElementById('special-fill');
+      if (fill) fill.style.height = `${Math.round(d.specialCharge * 100)}%`;
+      const specialBtn = document.getElementById('special-btn');
+      specialBtn?.classList.toggle('ready', d.specialReady);
+      const shakeEl = document.getElementById('special-shakes');
+      if (shakeEl) {
+        if (d.specialShakes > 0) {
+          shakeEl.textContent = String(d.specialShakes);
+          shakeEl.classList.remove('hidden');
+        } else {
+          shakeEl.classList.add('hidden');
+        }
+      }
     }
 
     if (d.jumpReady !== this.hudCache.jumpReady) {

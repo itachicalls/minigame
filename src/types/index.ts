@@ -68,6 +68,8 @@ export type ShopItem = {
   maxLevel: number;
 };
 
+export type MailmanId = 'johnny' | 'dingo' | 'mert';
+
 export type SaveData = {
   coins: number;
   unlockedLevels: string[];
@@ -76,6 +78,7 @@ export type SaveData = {
   equippedTurrets: TurretId[];
   equippedAbility: AbilityId | null;
   totalDeliveries: number;
+  selectedCharacter: MailmanId;
 };
 
 export type RunState = {
@@ -111,6 +114,7 @@ export const DEFAULT_SAVE: SaveData = {
   equippedTurrets: [],
   equippedAbility: null,
   totalDeliveries: 0,
+  selectedCharacter: 'johnny',
 };
 
 export const INITIAL_RUN: RunState = {

@@ -1,8 +1,28 @@
 import * as THREE from 'three';
 import { IS_MOBILE } from './platform';
 
+const matCache = new Map<string, THREE.MeshStandardMaterial>();
+
+function matKey(color: string, opts: Partial<THREE.MeshStandardMaterialParameters>): string {
+  return [
+    color,
+    opts.roughness ?? 0.65,
+    opts.metalness ?? 0,
+    opts.emissive ?? '',
+    opts.emissiveIntensity ?? 0,
+    opts.transparent ? 1 : 0,
+    opts.opacity ?? 1,
+  ].join('|');
+}
+
 export function mat(color: string, opts: Partial<THREE.MeshStandardMaterialParameters> = {}): THREE.MeshStandardMaterial {
-  return new THREE.MeshStandardMaterial({ color, roughness: 0.65, ...opts });
+  const key = matKey(color, opts);
+  let m = matCache.get(key);
+  if (!m) {
+    m = new THREE.MeshStandardMaterial({ color, roughness: 0.65, ...opts });
+    matCache.set(key, m);
+  }
+  return m;
 }
 
 export function addMesh(
@@ -18,6 +38,7 @@ export function addMesh(
   m.position.set(x, y, z);
   m.castShadow = castShadow;
   m.receiveShadow = !IS_MOBILE;
+  if (!IS_MOBILE) m.frustumCulled = true;
   parent.add(m);
   return m;
 }
@@ -35,13 +56,15 @@ export function disposeObject3D(obj: THREE.Object3D): void {
   obj.traverse((c) => {
     if (c instanceof THREE.Mesh) {
       c.geometry.dispose();
-      const m = c.material;
-      if (Array.isArray(m)) m.forEach((x) => x.dispose());
-      else m.dispose();
     }
     if (c instanceof THREE.Sprite) {
       (c.material as THREE.SpriteMaterial).map?.dispose();
       c.material.dispose();
     }
   });
+}
+
+export function clearMatCache(): void {
+  matCache.forEach((m) => m.dispose());
+  matCache.clear();
 }

@@ -9,7 +9,7 @@ type Particle = {
   active: boolean;
 };
 
-const MAX_PARTICLES = IS_MOBILE ? 32 : 56;
+const MAX_PARTICLES = IS_MOBILE ? 24 : 40;
 const SHARED_GEO = new THREE.BoxGeometry(0.12, 0.12, 0.12);
 
 export class ParticleSystem {
