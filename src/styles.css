@@ -1695,6 +1695,40 @@ kbd {
 .stars-display { font-size: 2.2rem; color: #ffd54f; letter-spacing: 10px; margin: 12px 0; }
 .results-reward { font-size: 1.1rem; font-weight: 800; color: #ffd54f; margin-bottom: 24px; }
 .results-buttons { display: flex; flex-direction: column; align-items: center; }
+.results-screen.boss-win .results-title { color: #ffab40; text-shadow: 0 0 24px rgba(255, 171, 64, 0.35); }
+
+.boss-cleared-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  background: radial-gradient(ellipse at center, rgba(255, 111, 0, 0.18), transparent 65%);
+  opacity: 0;
+  transition: opacity 0.35s ease;
+}
+.boss-cleared-overlay.visible { opacity: 1; }
+.boss-cleared-card {
+  text-align: center;
+  padding: 28px 36px;
+  border-radius: 20px;
+  background: rgba(18, 12, 28, 0.88);
+  border: 2px solid rgba(255, 171, 64, 0.55);
+  box-shadow: 0 0 40px rgba(255, 111, 0, 0.25);
+  transform: scale(0.92);
+  transition: transform 0.35s ease;
+}
+.boss-cleared-overlay.visible .boss-cleared-card { transform: scale(1); }
+.boss-cleared-icon { font-size: 3.5rem; margin-bottom: 8px; }
+.boss-cleared-title {
+  font-size: clamp(1.8rem, 6vw, 2.6rem);
+  font-weight: 900;
+  color: #ffab40;
+  letter-spacing: 0.04em;
+}
+.boss-cleared-sub { color: #ffe0b2; font-weight: 600; margin-top: 8px; font-size: 0.95rem; }
 
 .tap-icon { font-size: 1.1rem; margin-right: 4px; }
 

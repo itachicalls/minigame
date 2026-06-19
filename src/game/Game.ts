@@ -73,7 +73,16 @@ import {
 } from './Spawner';
 import { ParticleSystem, CameraShake } from './Effects';
 import { RenderPipeline } from './RenderPipeline';
-import { SpectacleDirector } from './SpectacleDirector';
+import { SpectacleDirector, type SpectacleKind } from './SpectacleDirector';
+import {
+  createBossFight,
+  updateBossFight,
+  bossProjectileHitsPlayer,
+  damageBoss,
+  bossHitRadius,
+  disposeBossFight,
+  type BossFightEntity,
+} from './BossFight';
 import { getPixelRatio, IS_MOBILE, isNearZ, ENABLE_SHADOWS, ENABLE_ANTIALIAS, ENABLE_TONE_MAPPING, ENABLE_BLOOM } from './platform';
 import { getViewportMetrics, onViewportChange, applyMobileViewportLock } from './viewport';
 import { getCharacter } from '../data/characters';
@@ -87,6 +96,7 @@ export type GameCallbacks = {
   onToast: (msg: string) => void;
   onCombat: (active: boolean) => void;
   onDamageFlash: () => void;
+  onBossCleared: () => void;
   onEnd: (result: GameResult) => void;
 };
 
@@ -173,6 +183,7 @@ export class Game {
   private slowMoTimer = 0;
   private fastShotTimer = 0;
   private turboTimer = 0;
+  private slideBoostTimer = 0;
   private tripleFireTimer = 0;
   private timeScale = 1;
   private autoFireEnabled = false;
@@ -201,6 +212,8 @@ export class Game {
   private ufoHazard: UfoSpotlightHazard | null = null;
   private blackoutTimer = 0;
   private bossSpawned = false;
+  private bossFight: BossFightEntity | null = null;
+  private bossCleared = false;
   private shootSpread = false;
   private shootPierce = 0;
   private shootHoming = false;
@@ -345,6 +358,7 @@ export class Game {
     this.slowMoTimer = 0;
     this.fastShotTimer = 0;
     this.turboTimer = 0;
+    this.slideBoostTimer = 0;
     this.tripleFireTimer = 0;
     this.timeScale = 1;
     this.specialCharge = 0;
@@ -413,6 +427,12 @@ export class Game {
     }
     this.blackoutTimer = 0;
     this.bossSpawned = false;
+    this.bossCleared = false;
+    if (this.bossFight) {
+      disposeBossFight(this.bossFight, this.scene);
+      this.bossFight = null;
+    }
+    sfx.endBossMusic();
     this.world.setBlackout(0);
     this.pickupRadius = 2.2 + (this.save.purchases['coin-magnet'] ?? 0) * 0.4;
     this.spectacle.reset();
@@ -679,6 +699,12 @@ export class Game {
       this.turboTimer -= dt;
       if (this.turboTimer <= 0) this.run.speed = this.run.baseSpeed;
     }
+    if (this.slideBoostTimer > 0) {
+      this.slideBoostTimer -= dt;
+      if (this.slideBoostTimer <= 0 && this.turboTimer <= 0) {
+        this.run.speed = this.run.baseSpeed;
+      }
+    }
     if (this.tripleFireTimer > 0) {
       this.tripleFireTimer -= dt;
       if (this.tripleFireTimer <= 0) this.refreshShootSpread();
@@ -692,7 +718,9 @@ export class Game {
             ? '🔥 OVERDRIVE'
             : this.tripleFireTimer > 0
               ? '🔫 TRIPLE FIRE'
-              : this.fastShotTimer > 0
+              : this.slideBoostTimer > 0
+                ? '⚡ SLIDE BOOST'
+                : this.fastShotTimer > 0
           ? '⚡ FAST'
           : this.slowMoTimer > 0
             ? '🐢 SLOW-MO'
@@ -753,6 +781,7 @@ export class Game {
     this.updateSpectacle(dt);
     this.updateUfoHazard(dt);
     this.maybeSpawnBoss();
+    this.updateBossFight(scaledDt);
     this.cullBehind();
 
     const pz = this.player.z;
@@ -781,7 +810,7 @@ export class Game {
     this.particles.update(dt);
     this.shootPulse = Math.max(0, this.shootPulse - dt * 2.8);
     this.world.update(this.gameTime, pz, dt, {
-      turbo: this.turboTimer > 0,
+      turbo: this.turboTimer > 0 || this.slideBoostTimer > 0,
       speed: this.run.speed,
       baseSpeed: this.run.baseSpeed,
       playerX: this.player.x,
@@ -834,6 +863,8 @@ export class Game {
     this.checkElectricBars();
     this.checkObstacles();
     this.checkNearMisses();
+    this.checkBoostPads();
+    this.checkBossProjectiles();
     this.checkRunners();
     this.checkRouteGates();
     this.checkDropoff();
@@ -1179,10 +1210,50 @@ export class Game {
       this.coins.push(...createCoinLine(this.scene, r.z, IS_MOBILE ? 5 : 8, 4));
       this.packagePickups.push(spawnGoldenMail(this.scene, r.x, r.z));
     }
-    if (r.isBoss) {
-      this.startGearTrial();
-      this.powerUps.push(createPowerUp(this.scene, randomPowerUpKind(), 0, r.z));
-      this.cb.onToast('💥 Boss down — deliver the mail!');
+  }
+
+  private isBossLevel(): boolean {
+    return this.level.name.includes('Boss');
+  }
+
+  private applySpectacleGameplay(kind: SpectacleKind): boolean {
+    const ahead = this.player.z + (IS_MOBILE ? 36 : 44);
+    const district = this.level.district;
+    const tooClose = (z: number) => this.electricBars.some((b) => Math.abs(b.z - z) < 10);
+
+    switch (kind) {
+      case 'energy-surge':
+        if (tooClose(ahead)) return false;
+        this.electricBars.push(
+          createElectricBar(this.scene, ahead, { span: 'full', clearance: 'slide', district })
+        );
+        return true;
+      case 'orbital-flash':
+        if (tooClose(ahead)) return false;
+        this.electricBars.push(
+          createElectricBar(this.scene, ahead, { span: 'full', clearance: 'jump', district })
+        );
+        return true;
+      case 'meteor-streak':
+        this.coins.push(...createCoinLine(this.scene, ahead, IS_MOBILE ? 8 : 12, 5));
+        this.world.playSpectacle(kind, this.player.z);
+        return true;
+      case 'alien-rain': {
+        const lanes = pickObstacleLanes();
+        for (let i = 0; i < (IS_MOBILE ? 1 : 2); i++) {
+          this.runners.push(
+            createRunner(this.scene, pickRunnerTier(this.level.difficulty), lanes[i] ?? pickRandomLane(), ahead + i * 5)
+          );
+        }
+        return true;
+      }
+      case 'dogfight':
+      case 'distant-barrage':
+        this.world.playSpectacle(kind, this.player.z);
+        return false;
+      default:
+        this.world.playSpectacle(kind, this.player.z);
+        return false;
     }
   }
 
@@ -1194,13 +1265,11 @@ export class Game {
       night: this.world.getSkyNight(),
     });
     if (ev) {
-      this.cb.onToast(ev.message);
-      this.world.playSpectacle(ev.kind, this.player.z);
-      this.shake.shake(ev.pulse * 0.14);
-      sfx.spectacle(ev.kind);
-      if (ev.kind === 'energy-surge') {
-        this.world.setBlackout(0.35);
-        this.blackoutTimer = Math.max(this.blackoutTimer, 2.5);
+      const spawned = this.applySpectacleGameplay(ev.kind);
+      if (ev.gameplay && spawned && ev.message) this.cb.onToast(ev.message);
+      if (spawned || !ev.gameplay) {
+        this.shake.shake(ev.pulse * (ev.gameplay ? 0.12 : 0.06));
+        sfx.spectacle(ev.kind);
       }
     }
     sfx.setCombatIntensity(this.spectacle.getCombatIntensity());
@@ -1241,16 +1310,15 @@ export class Game {
 
   private updateMiniEvents(): void {
     if (this.player.z < this.nextMiniEventZ) return;
-    this.nextMiniEventZ += 200 + Math.random() * 50;
+    this.nextMiniEventZ += 340 + Math.random() * 90;
     const d = this.level.district;
     const roll = Math.random();
 
     const ufo = (): void => {
-      this.cb.onToast('🛸 UFO convoy — coin shower!');
       this.coins.push(...createCoinLine(this.scene, this.player.z + 45, IS_MOBILE ? 6 : 10, 5));
+      this.cb.onToast('🌠 Bonus coins ahead!');
     };
     const escort = (): void => {
-      this.cb.onToast('📬 Escort convoy rolling!');
       this.convoy.reactTurbo();
       sfx.honk();
     };
@@ -1283,12 +1351,93 @@ export class Game {
 
   private maybeSpawnBoss(): void {
     if (this.bossSpawned || !this.dropoff) return;
-    if (!this.level.name.includes('Boss')) return;
-    if (this.player.z < this.dropoff.z - 95) return;
+    if (!this.isBossLevel()) return;
+    if (this.player.z < this.dropoff.z - 115) return;
     this.bossSpawned = true;
-    this.runners.push(createRunner(this.scene, 'stalker', 0, this.dropoff.z - 8, { boss: true }));
-    sfx.eliteSpawn();
-    this.cb.onToast('👾 BOSS ALIEN guards the drop-off!');
+    this.bossFight = createBossFight(this.scene, this.dropoff.z - 52);
+    sfx.startBossMusic();
+    this.shake.shake(0.4);
+    this.spectacle.bumpCombat(0.5);
+    this.cb.onToast('👾 BOSS FIGHT — dodge the blasts!');
+  }
+
+  private updateBossFight(dt: number): void {
+    const boss = this.bossFight;
+    if (!boss) return;
+
+    updateBossFight(
+      boss,
+      this.scene,
+      dt,
+      this.gameTime,
+      this.player.x,
+      this.player.z,
+      () => {
+        const lanes = [-3.2, -1.6, 1.6, 3.2];
+        const count = IS_MOBILE ? 1 : 2;
+        for (let i = 0; i < count; i++) {
+          this.runners.push(
+            createRunner(
+              this.scene,
+              pickRunnerTier(this.level.difficulty),
+              lanes[Math.floor(Math.random() * lanes.length)],
+              boss.z - 6 - i * 4
+            )
+          );
+        }
+      },
+      () => sfx.bossShoot()
+    );
+
+    if (boss.defeated && !this.bossCleared) {
+      this.onBossDefeated();
+    }
+  }
+
+  private onBossDefeated(): void {
+    if (!this.bossFight || this.bossCleared) return;
+    this.bossCleared = true;
+    this.run.coins += 50;
+    sfx.bossDefeated();
+    sfx.endBossMusic();
+    this.shake.shake(0.55);
+    this.particles.burst(this.bossFight.x, 2.5, this.bossFight.z, '#FFD54F', IS_MOBILE ? 24 : 40, 8);
+    this.cb.onBossCleared();
+  }
+
+  private checkBoostPads(): void {
+    if (!this.running || this.dead) return;
+    if (!this.world.tryTriggerBoostPad(this.player.x, this.player.z)) return;
+    this.applySlideBoost();
+  }
+
+  private applySlideBoost(): void {
+    this.player.boostSlide(IS_MOBILE ? 1.05 : 1.2);
+    this.slideBoostTimer = IS_MOBILE ? 1.25 : 1.45;
+    this.run.speed = this.run.baseSpeed * (IS_MOBILE ? 1.34 : 1.42);
+    this.shake.shake(0.24);
+    sfx.slideBoost();
+    sfx.slide();
+    this.convoy.reactTurbo();
+    this.particles.collectBurst(this.player.x, this.player.z);
+    this.shootPulse = 0.4;
+    this.spectacle.bumpCombat(0.06);
+  }
+
+  private checkBossProjectiles(): void {
+    const boss = this.bossFight;
+    if (!boss || boss.defeated) return;
+    if (
+      bossProjectileHitsPlayer(
+        boss,
+        this.player.x,
+        this.player.z,
+        this.player.jumpY,
+        this.player.isSliding
+      )
+    ) {
+      if (!this.isProtected()) this.takeHit('runner');
+    }
   }
 
   private checkNearMisses(): void {
@@ -1344,6 +1493,24 @@ export class Game {
       if (t.life <= 0) continue;
       const tz = t.mesh.position.z;
       const py = t.mesh.position.y;
+
+      const boss = this.bossFight;
+      if (boss && boss.alive && !boss.defeated && Math.abs(boss.z - tz) <= 3.5) {
+        const bdx = t.mesh.position.x - boss.x;
+        const bdz = t.mesh.position.z - boss.z;
+        const rad = bossHitRadius();
+        if (bdx * bdx + bdz * bdz < rad * rad) {
+          const headshot = py >= 1.6;
+          const dmg = headshot ? t.damage * 2 : t.damage;
+          sfx.alienHit();
+          this.particles.alienHit(t.mesh.position.x, t.mesh.position.y, t.mesh.position.z, headshot);
+          this.spectacle.bumpCombat(headshot ? 0.14 : 0.08);
+          if (t.pierceLeft > 0) t.pierceLeft--;
+          else t.life = 0;
+          if (damageBoss(boss, dmg)) this.onBossDefeated();
+        }
+      }
+
       for (const r of this.runners) {
         if (!r.alive) continue;
         if (Math.abs(r.z - tz) > 2.5) continue;
@@ -1577,7 +1744,7 @@ export class Game {
 
   private checkDropoff(): void {
     if (!this.dropoff || this.dropoff.reached) return;
-    if (this.runners.some((r) => r.alive && r.isBoss)) return;
+    if (this.bossFight && !this.bossFight.defeated) return;
     if (this.player.z >= this.dropoff.z - 3) {
       this.dropoff.reached = true;
       this.particles.gateBurst(0, this.dropoff.z, '#81D4FA');
@@ -1633,6 +1800,8 @@ export class Game {
       levelId: this.level.id,
       time: this.elapsed,
       deathReason: won ? undefined : reasons[this.deathReason],
+      bossLevel: this.isBossLevel(),
+      bossCleared: this.bossCleared,
     });
   }
 
@@ -1716,6 +1885,10 @@ export class Game {
     disposeCoins(this.coins, this.scene);
     disposePickups(this.packagePickups, this.scene);
     disposePowerUps(this.powerUps, this.scene);
+    if (this.bossFight) {
+      disposeBossFight(this.bossFight, this.scene);
+      this.bossFight = null;
+    }
     this.throws = updateThrows(this.throws, 999, this.scene);
     if (this.dropoff) disposeEntity(this.dropoff.mesh, this.scene);
     this.particles.clear();

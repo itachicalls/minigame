@@ -5,6 +5,7 @@ import { IS_MOBILE, WORLD_AHEAD, WORLD_BEHIND, SKY_RES, SKY_UPDATE_SEC, freezeSt
 import { SkyEffects } from './SkyEffects';
 import type { SpectacleKind } from './SpectacleDirector';
 import { getBrickTexture, getSidingTexture, getRoofShingleTexture, getBarkTexture, getLeafTexture } from './WorldTextures';
+import { makeBoostLaneTexture } from './HazardVisuals';
 
 
 function skyNightFromTime(time: number): number {
@@ -33,9 +34,18 @@ export type RoadFxInput = {
 
 type BoostPad = {
   group: THREE.Group;
+  x: number;
   z: number;
   flash: number;
+  cooldown: number;
+  underlay: THREE.Mesh;
+  decal: THREE.Mesh;
+  pulsePhase: number;
+  accent: string;
 };
+
+const BOOST_LANES = [-3.2, -1.6, 0, 1.6, 3.2] as const;
+const BOOST_LANE_COLORS = ['#FF6B9D', '#FFD93D', '#6BCBFF', '#FF8C42', '#B388FF'] as const;
 
 export class World {
   scene: THREE.Scene;
@@ -51,6 +61,7 @@ export class World {
   private roadRainTex: THREE.CanvasTexture | null = null;
   private roadRainMesh: THREE.Mesh | null = null;
   private boostPads: BoostPad[] = [];
+  private boostLaneTex: THREE.CanvasTexture | null = null;
   private roadAccent = { primary: '#FFE082', secondary: '#FFF8E1', edge: '#FFFFFF' };
   private roadFx: RoadFxInput = { turbo: false, speed: 16, baseSpeed: 16, playerX: 0 };
   private wetFactor = 0;
@@ -893,74 +904,87 @@ export class World {
     return this.roadRainTex;
   }
 
-  private placeBoostPads(theme: DistrictTheme, levelLength: number): void {
-    const accent = this.roadAccentForTheme(theme);
-    const step = IS_MOBILE ? 58 : 46;
-    for (let z = 52; z < levelLength - 24; z += step) {
+  private placeBoostPads(_theme: DistrictTheme, levelLength: number): void {
+    if (!this.boostLaneTex) this.boostLaneTex = makeBoostLaneTexture();
+    const step = IS_MOBILE ? 72 : 56;
+    const laneW = IS_MOBILE ? 1.28 : 1.48;
+    const laneL = IS_MOBILE ? 2.75 : 3.2;
+    let laneIdx = 0;
+
+    for (let z = 58; z < levelLength - 24; z += step) {
+      const x = BOOST_LANES[laneIdx % BOOST_LANES.length];
+      const accent = BOOST_LANE_COLORS[laneIdx % BOOST_LANE_COLORS.length];
+      laneIdx += IS_MOBILE ? 2 : 1;
+
       const group = new THREE.Group();
-      group.position.set(0, 0, z);
+      group.position.set(x, 0, z);
+      const pulsePhase = Math.random() * Math.PI * 2;
 
-      const ring = addMesh(
+      const underlay = addMesh(
         group,
-        new THREE.RingGeometry(0.75, 1.05, IS_MOBILE ? 20 : 28),
+        new THREE.CircleGeometry(laneW * 0.54, IS_MOBILE ? 12 : 16),
         new THREE.MeshBasicMaterial({
-          color: accent.primary,
+          color: accent,
           transparent: true,
-          opacity: 0.22,
-          blending: THREE.AdditiveBlending,
-          depthWrite: false,
-          side: THREE.DoubleSide,
-        }),
-        0,
-        0.034,
-        0,
-        false
-      );
-      ring.rotation.x = -Math.PI / 2;
-
-      const core = addMesh(
-        group,
-        new THREE.CircleGeometry(0.72, IS_MOBILE ? 16 : 24),
-        new THREE.MeshBasicMaterial({
-          color: accent.secondary,
-          transparent: true,
-          opacity: 0.1,
-          blending: THREE.AdditiveBlending,
+          opacity: 0.42,
           depthWrite: false,
         }),
         0,
-        0.035,
+        0.033,
         0,
         false
       );
-      core.rotation.x = -Math.PI / 2;
+      underlay.rotation.x = -Math.PI / 2;
 
-      for (let i = 0; i < 3; i++) {
-        const arrow = addMesh(
-          group,
-          new THREE.PlaneGeometry(0.35, 0.22),
-          new THREE.MeshBasicMaterial({
-            color: accent.primary,
-            transparent: true,
-            opacity: 0.35,
-            blending: THREE.AdditiveBlending,
-            depthWrite: false,
-            side: THREE.DoubleSide,
-          }),
-          0,
-          0.036,
-          -0.25 + i * 0.25,
-          false
-        );
-        arrow.rotation.x = -Math.PI / 2;
-        arrow.userData.isPadArrow = true;
-      }
+      const decal = addMesh(
+        group,
+        new THREE.PlaneGeometry(laneW * 0.94, laneL * 0.96),
+        new THREE.MeshBasicMaterial({
+          map: this.boostLaneTex,
+          color: accent,
+          transparent: true,
+          opacity: 0.88,
+          depthWrite: false,
+          polygonOffset: true,
+          polygonOffsetFactor: -1,
+          polygonOffsetUnits: -1,
+        }),
+        0,
+        0.036,
+        0,
+        false
+      );
+      decal.rotation.x = -Math.PI / 2;
+      decal.rotation.z = Math.PI;
+      decal.userData.isBoostDecal = true;
 
-      freezeStatic(group);
       this.scene.add(group);
       this.rootMeshes.push(group);
-      this.boostPads.push({ group, z, flash: 0 });
+      this.boostPads.push({
+        group,
+        x,
+        z,
+        flash: 0,
+        cooldown: 0,
+        underlay,
+        decal,
+        pulsePhase,
+        accent,
+      });
     }
+  }
+
+  /** Returns true when the player hits a boost pad and triggers slide boost. */
+  tryTriggerBoostPad(px: number, pz: number): boolean {
+    for (const pad of this.boostPads) {
+      if (pad.cooldown > 0) continue;
+      if (Math.abs(pz - pad.z) > 1.35) continue;
+      if (Math.abs(px - pad.x) > 0.78) continue;
+      pad.flash = 1;
+      pad.cooldown = 1.1;
+      return true;
+    }
+    return false;
   }
 
   getSkyNight(): number {
@@ -1130,15 +1154,12 @@ export class World {
     }
 
     for (let i = 0; i < 5; i++) {
-      const mx = size * 0.25 + (i * size) / 5;
+      const mx = size * 0.12 + (i * size) / 6;
       const my = (i * 97) % (size - 40);
-      ctx.fillStyle = '#1a2026';
+      ctx.fillStyle = '#3a4550';
       ctx.beginPath();
-      ctx.arc(mx, my + 20, size * 0.035, 0, Math.PI * 2);
+      ctx.arc(mx, my + 20, size * 0.022, 0, Math.PI * 2);
       ctx.fill();
-      ctx.strokeStyle = 'rgba(100,120,140,0.35)';
-      ctx.lineWidth = 1;
-      ctx.stroke();
     }
 
     const colorTex = new THREE.CanvasTexture(colorCanvas);
@@ -1904,29 +1925,34 @@ export class World {
       rm.visible = this.wetFactor > 0.18;
     }
 
-    const padRange = IS_MOBILE ? 42 : 58;
+    const padRange = IS_MOBILE ? 40 : 54;
     for (const pad of this.boostPads) {
       const near = Math.abs(pad.z - playerZ) < padRange;
       pad.group.visible = near;
       if (!near) continue;
 
-      if (Math.abs(playerZ - pad.z) < 1.4 && Math.abs(this.roadFx.playerX) < 1.6) {
-        pad.flash = 1;
-      }
-      pad.flash = Math.max(0, pad.flash - dt * 2.8);
+      pad.cooldown = Math.max(0, pad.cooldown - dt);
+      pad.flash = Math.max(0, pad.flash - dt * 2.4);
 
-      pad.group.traverse((c) => {
-        if (!(c instanceof THREE.Mesh)) return;
-        const m = c.material as THREE.MeshBasicMaterial;
-        const idle = c.userData.isPadArrow ? 0.28 : 0.2;
-        const peak = c.userData.isPadArrow ? 0.95 : 0.75;
-        m.opacity = idle + pad.flash * (peak - idle);
-      });
-      if (pad.flash > 0.85) {
-        pad.group.scale.setScalar(1 + pad.flash * 0.06);
-      } else {
-        pad.group.scale.setScalar(1);
+      const t = time + pad.pulsePhase;
+      const pulse = 0.5 + 0.5 * Math.sin(t * 2.6);
+      const fastPulse = 0.5 + 0.5 * Math.sin(t * 5.2);
+      const active = pad.flash;
+
+      const underMat = pad.underlay.material as THREE.MeshBasicMaterial;
+      underMat.opacity = 0.34 + pulse * 0.18 + active * 0.22;
+      const bright = new THREE.Color(pad.accent);
+      const dim = bright.clone().multiplyScalar(0.72);
+      underMat.color.copy(dim).lerp(bright, 0.35 + pulse * 0.45 + active * 0.2);
+
+      const decalMat = pad.decal.material as THREE.MeshBasicMaterial;
+      decalMat.opacity = 0.76 + fastPulse * 0.12 + active * 0.1;
+      if (decalMat.map) {
+        decalMat.map.offset.y = (time * 0.22 + pad.pulsePhase * 0.05) % 1;
       }
+
+      const scale = 1 + pulse * 0.035 + active * 0.07;
+      pad.group.scale.set(scale, 1, scale);
     }
     if (!IS_MOBILE && this.rootMeshes[0]?.userData.isTerrain) {
       const grass = this.rootMeshes[0] as THREE.Mesh;
@@ -1974,6 +2000,10 @@ export class World {
     this.rootMeshes = [];
     this.animProps = [];
     this.boostPads = [];
+    if (this.boostLaneTex) {
+      this.boostLaneTex.dispose();
+      this.boostLaneTex = null;
+    }
     if (this.roadTexture) this.roadTexture.dispose();
     if (this.roadEmissiveTex) {
       this.roadEmissiveTex.dispose();

@@ -13,6 +13,8 @@ export type SpectacleEvent = {
   message: string;
   pulse: number;
   duration: number;
+  /** When true, Game spawns a real road hazard/reward and may toast. */
+  gameplay: boolean;
 };
 
 type SpectacleCtx = {
@@ -67,7 +69,7 @@ export class SpectacleDirector {
 
     if (ctx.playerZ < this.nextEventZ) return null;
 
-    this.nextEventZ = ctx.playerZ + (IS_MOBILE ? 26 : 22) + Math.random() * 14;
+    this.nextEventZ = ctx.playerZ + (IS_MOBILE ? 52 : 46) + Math.random() * 28;
     const ev = this.pickEvent(ctx);
     this.active = ev;
     this.activeT = ev.duration;
@@ -81,48 +83,54 @@ export class SpectacleDirector {
     if (ctx.night > 0.45 && roll < 0.28) {
       return {
         kind: 'orbital-flash',
-        message: '☄ ORBITAL STRIKE — keep moving!',
+        message: '☄ Jump bar incoming!',
         pulse: 0.55,
         duration: 2.8,
+        gameplay: true,
       };
     }
     if (roll < 0.45) {
       return {
         kind: 'dogfight',
-        message: '✈ Jets vs UFOs overhead!',
+        message: '',
         pulse: 0.35,
         duration: 4,
+        gameplay: false,
       };
     }
     if (roll < 0.62) {
       return {
         kind: 'meteor-streak',
-        message: '🌠 Meteor shower!',
+        message: '🌠 Coin shower!',
         pulse: 0.4,
         duration: 3.2,
+        gameplay: true,
       };
     }
     if (roll < 0.78) {
       return {
         kind: 'energy-surge',
-        message: '⚡ Energy surge on the highway!',
+        message: '⚡ Slide under the surge!',
         pulse: 0.45,
         duration: 2.5,
+        gameplay: true,
       };
     }
     if (ctx.runnerCount >= 3 && roll < 0.9) {
       return {
         kind: 'alien-rain',
-        message: '👾 Alien drop pods incoming!',
+        message: '👾 Reinforcements dropping!',
         pulse: 0.38,
         duration: 2.2,
+        gameplay: true,
       };
     }
     return {
       kind: 'distant-barrage',
-      message: '💥 War zone ahead!',
+      message: '',
       pulse: 0.42,
       duration: 3,
+      gameplay: false,
     };
   }
 }

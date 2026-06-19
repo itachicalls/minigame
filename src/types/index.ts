@@ -145,6 +145,8 @@ export type GameResult = {
   levelId: string;
   time: number;
   deathReason?: string;
+  bossLevel?: boolean;
+  bossCleared?: boolean;
 };
 
 export const DEFAULT_SAVE: SaveData = {

@@ -4,6 +4,77 @@ import { IS_MOBILE } from './platform';
 import type { ObstacleKind } from '../types';
 
 const SEG = IS_MOBILE ? 8 : 12;
+const CAUTION_YELLOW = '#FFC107';
+const CAUTION_ORANGE = '#FF9800';
+const CAUTION_BLACK = '#1a1a1a';
+
+let sharedCautionTex: THREE.CanvasTexture | null = null;
+
+export function getCautionStripeTexture(): THREE.CanvasTexture {
+  if (sharedCautionTex) return sharedCautionTex;
+  const size = IS_MOBILE ? 64 : 96;
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d')!;
+  ctx.fillStyle = CAUTION_YELLOW;
+  ctx.fillRect(0, 0, size, size);
+  ctx.fillStyle = CAUTION_BLACK;
+  const stripe = IS_MOBILE ? 10 : 14;
+  for (let i = -size; i < size * 2; i += stripe * 2) {
+    ctx.beginPath();
+    ctx.moveTo(i, 0);
+    ctx.lineTo(i + stripe, 0);
+    ctx.lineTo(i + stripe - size, size);
+    ctx.lineTo(i - size, size);
+    ctx.fill();
+  }
+  sharedCautionTex = new THREE.CanvasTexture(canvas);
+  sharedCautionTex.colorSpace = THREE.SRGBColorSpace;
+  sharedCautionTex.wrapS = sharedCautionTex.wrapT = THREE.RepeatWrapping;
+  return sharedCautionTex;
+}
+
+/** Matte Mario Kart–style arrow tiles — color comes from material tint + pulse. */
+export function makeBoostLaneTexture(): THREE.CanvasTexture {
+  const w = IS_MOBILE ? 64 : 80;
+  const h = IS_MOBILE ? 128 : 160;
+  const canvas = document.createElement('canvas');
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext('2d')!;
+
+  ctx.fillStyle = '#3d2858';
+  ctx.fillRect(0, 0, w, h);
+
+  const tileColors = ['#FF6B9D', '#FFD93D', '#6BCBFF', '#FF8C42'];
+  const rows = 6;
+  for (let row = 0; row < rows; row++) {
+    const cy = h * 0.78 - row * (h / (rows + 1));
+    const color = tileColors[row % tileColors.length];
+    ctx.fillStyle = color;
+    ctx.strokeStyle = '#2a1838';
+    ctx.lineWidth = 2;
+    for (const cx of [w * 0.27, w * 0.5, w * 0.73]) {
+      ctx.beginPath();
+      ctx.moveTo(cx, cy - h * 0.045);
+      ctx.lineTo(cx - w * 0.1, cy + h * 0.03);
+      ctx.lineTo(cx + w * 0.1, cy + h * 0.03);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+    }
+  }
+
+  ctx.strokeStyle = '#2a1838';
+  ctx.lineWidth = 5;
+  ctx.strokeRect(3, 3, w - 6, h - 6);
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.wrapT = THREE.RepeatWrapping;
+  return tex;
+}
 
 export function buildHazardMesh(group: THREE.Group, kind: ObstacleKind): void {
   switch (kind) {
@@ -104,87 +175,122 @@ export function buildHazardMesh(group: THREE.Group, kind: ObstacleKind): void {
       buildIdolShrine(group);
       break;
   }
+  applyObstacleCautionAccents(group);
 }
 
-/** Subtle road wear + high-visibility hazard marker ring */
-function groundBase(parent: THREE.Object3D, radius: number): void {
-  if (IS_MOBILE) {
-    const pad = addMesh(
-      parent,
-      new THREE.CircleGeometry(radius * 0.68, SEG * 2),
-      mat('#ECEFF1', { roughness: 0.92, metalness: 0.02 }),
-      0,
-      0.008,
-      0,
-      false
-    );
-    pad.rotation.x = -Math.PI / 2;
-    pad.userData.isHazardPad = true;
-  }
+function cautionStripeMat(): THREE.MeshStandardMaterial {
+  const tex = getCautionStripeTexture();
+  tex.repeat.set(1.2, 1);
+  return mat('#FFFFFF', {
+    map: tex,
+    roughness: 0.72,
+    emissive: CAUTION_ORANGE,
+    emissiveIntensity: IS_MOBILE ? 0.06 : 0.1,
+  });
+}
 
-  const shadow = addMesh(
+function addCautionBand(
+  parent: THREE.Object3D,
+  w: number,
+  h: number,
+  y: number,
+  z: number,
+  rotY = 0
+): void {
+  const band = addMesh(
     parent,
-    new THREE.CircleGeometry(radius * 0.98, SEG * 2),
-    mat('#0a0c12', { transparent: true, opacity: IS_MOBILE ? 0.28 : 0.52, roughness: 1 }),
+    new THREE.PlaneGeometry(w, h),
+    cautionStripeMat(),
     0,
-    0.005,
+    y,
+    z,
+    false
+  );
+  band.rotation.y = rotY;
+  band.userData.isCautionBand = true;
+}
+
+function applyObstacleCautionAccents(root: THREE.Group): void {
+  root.traverse((c) => {
+    if (!(c instanceof THREE.Mesh) || c.userData.isCautionBand || c.userData.isGlow) return;
+    if (!(c.material instanceof THREE.MeshStandardMaterial)) return;
+    const hex = c.material.color.getHex();
+    const isDark =
+      hex === 0x212121 ||
+      hex === 0x1a1a1a ||
+      hex === 0x1c1c1c ||
+      hex === 0x0a0c12 ||
+      hex === 0x263238 ||
+      hex === 0x37474f;
+    if (!isDark) return;
+
+    c.material.emissive.set(CAUTION_ORANGE);
+    c.material.emissiveIntensity = IS_MOBILE ? 0.1 : 0.14;
+    c.material.color.lerp(new THREE.Color(CAUTION_YELLOW), IS_MOBILE ? 0.14 : 0.18);
+  });
+}
+
+/** Road wear + high-visibility caution perimeter */
+function groundBase(parent: THREE.Object3D, radius: number): void {
+  const scuff = addMesh(
+    parent,
+    new THREE.CircleGeometry(radius * 0.94, SEG * 2),
+    mat('#5a6570', { roughness: 0.95, metalness: 0.04 }),
+    0,
+    0.004,
     0,
     false
   );
-  shadow.rotation.x = -Math.PI / 2;
+  scuff.rotation.x = -Math.PI / 2;
 
-  const warnRing = addMesh(
+  for (let i = 0; i < 8; i++) {
+    const a0 = (i / 8) * Math.PI * 2;
+    const a1 = Math.PI / 4;
+    const stripeColor = i % 2 === 0 ? CAUTION_YELLOW : CAUTION_ORANGE;
+    const seg = addMesh(
+      parent,
+      new THREE.RingGeometry(radius * 0.74, radius * 0.98, IS_MOBILE ? 3 : 4, 1, a0, a1),
+      mat(stripeColor, {
+        roughness: 0.68,
+        emissive: stripeColor,
+        emissiveIntensity: IS_MOBILE ? 0.1 : 0.14,
+      }),
+      0,
+      0.01,
+      0,
+      false
+    );
+    seg.rotation.x = -Math.PI / 2;
+    seg.userData.isGlow = true;
+  }
+
+  const inner = addMesh(
     parent,
-    new THREE.RingGeometry(radius * 0.72, radius * 0.96, SEG * 2),
-    new THREE.MeshBasicMaterial({
-      color: '#FF9800',
-      transparent: true,
-      opacity: 0.42,
-      blending: THREE.AdditiveBlending,
-      depthWrite: false,
-    }),
+    new THREE.RingGeometry(radius * 0.42, radius * 0.58, SEG),
+    mat(CAUTION_BLACK, { roughness: 0.9, emissive: CAUTION_ORANGE, emissiveIntensity: 0.06 }),
     0,
     0.012,
     0,
     false
   );
-  warnRing.rotation.x = -Math.PI / 2;
-  warnRing.userData.isGlow = true;
-
-  const innerRing = addMesh(
-    parent,
-    new THREE.RingGeometry(radius * 0.38, radius * 0.52, SEG * 2),
-    new THREE.MeshBasicMaterial({
-      color: '#FFE082',
-      transparent: true,
-      opacity: 0.22,
-      blending: THREE.AdditiveBlending,
-      depthWrite: false,
-    }),
-    0,
-    0.014,
-    0,
-    false
-  );
-  innerRing.rotation.x = -Math.PI / 2;
-  innerRing.userData.isGlow = true;
+  inner.rotation.x = -Math.PI / 2;
 
   for (let i = 0; i < 4; i++) {
     const a = (i / 4) * Math.PI * 2 + Math.PI / 4;
     const post = addMesh(
       parent,
-      new THREE.CylinderGeometry(0.025, 0.035, 0.28, 4),
-      mat('#FF9800', { emissive: '#FF9800', emissiveIntensity: 0.35, roughness: 0.6 }),
-      Math.cos(a) * radius * 0.82,
-      0.14,
-      Math.sin(a) * radius * 0.82
+      new THREE.CylinderGeometry(0.028, 0.038, 0.3, 4),
+      mat(CAUTION_ORANGE, { emissive: CAUTION_YELLOW, emissiveIntensity: 0.35, roughness: 0.6 }),
+      Math.cos(a) * radius * 0.84,
+      0.15,
+      Math.sin(a) * radius * 0.84
     );
     addMesh(
       post,
-      new THREE.SphereGeometry(0.045, 6, 6),
-      mat('#FFEB3B', { emissive: '#FFC107', emissiveIntensity: 0.55 }),
+      new THREE.SphereGeometry(0.048, 6, 6),
+      mat(CAUTION_YELLOW, { emissive: CAUTION_YELLOW, emissiveIntensity: 0.5 }),
       0,
-      0.16,
+      0.17,
       0
     );
   }
@@ -199,17 +305,17 @@ function metalMat(color: string, metalness = 0.55) {
 }
 
 function cautionStripes(parent: THREE.Object3D, w: number, h: number, y: number, z: number): void {
-  const board = addMesh(parent, new THREE.BoxGeometry(w, h, 0.06), mat('#1c1c1c', { roughness: 0.85 }), 0, y, z);
-  for (let i = 0; i < Math.floor(w / 0.18); i++) {
-    addMesh(
-      board,
-      new THREE.BoxGeometry(0.09, h + 0.02, 0.02),
-      mat(i % 2 === 0 ? '#F9A825' : '#1c1c1c', { roughness: 0.7 }),
-      -w / 2 + 0.09 + i * 0.18,
-      0,
-      0.04
-    );
-  }
+  const board = addMesh(parent, new THREE.BoxGeometry(w, h, 0.06), mat(CAUTION_BLACK, { roughness: 0.85 }), 0, y, z);
+  const tex = getCautionStripeTexture();
+  tex.repeat.set(Math.max(2, w / 0.2), 1);
+  addMesh(
+    board,
+    new THREE.PlaneGeometry(w * 0.96, h * 0.92),
+    mat('#FFFFFF', { map: tex, roughness: 0.7, emissive: CAUTION_ORANGE, emissiveIntensity: 0.08 }),
+    0,
+    0,
+    0.04
+  );
 }
 
 function buildNewsboxRow(g: THREE.Group): void {
@@ -351,12 +457,13 @@ function buildNewsStand(g: THREE.Group): void {
     addMesh(g, new THREE.BoxGeometry(0.07, 0.7, 0.07), metalMat('#37474F'), ox, 0.35, 0);
   }
   addMesh(g, new THREE.BoxGeometry(1.0, 0.1, 0.58), metalMat('#263238', 0.5), 0, 0.66, 0);
-  addMesh(g, new THREE.BoxGeometry(0.9, 0.48, 0.48), mat('#1a1a1a', { roughness: 0.9 }), 0, 0.4, 0);
+  addMesh(g, new THREE.BoxGeometry(0.9, 0.48, 0.48), mat(CAUTION_BLACK, { roughness: 0.9 }), 0, 0.4, 0);
+  addCautionBand(g, 0.82, 0.12, 0.52, 0.26);
   for (let i = 0; i < 5; i++) {
     addMesh(
       g,
       new THREE.BoxGeometry(0.14, 0.4, 0.02),
-      mat(i % 2 === 0 ? '#F9A825' : '#212121', { roughness: 0.65 }),
+      mat(i % 2 === 0 ? CAUTION_YELLOW : CAUTION_BLACK, { roughness: 0.65 }),
       -0.32 + i * 0.16,
       0.42,
       0.25
@@ -414,8 +521,9 @@ function buildFallenSign(g: THREE.Group): void {
   addMesh(g, new THREE.CylinderGeometry(0.05, 0.07, 0.95, 8), metalMat('#78909C'), 0.32, 0.1, 0.22);
   const sign = addMesh(g, new THREE.BoxGeometry(1.15, 0.68, 0.07), mat('#F9A825', { roughness: 0.55 }), -0.12, 0.2, -0.06);
   sign.rotation.z = 1.12;
-  addMesh(sign, new THREE.BoxGeometry(0.16, 0.48, 0.02), mat('#212121'), 0, 0, 0.05);
-  addMesh(sign, new THREE.BoxGeometry(0.12, 0.12, 0.02), mat('#212121'), 0.16, -0.12, 0.05);
+  addMesh(sign, new THREE.BoxGeometry(0.16, 0.48, 0.02), mat(CAUTION_BLACK), 0, 0, 0.05);
+  addCautionBand(sign, 0.14, 0.1, 0.02, 0.04);
+  addMesh(sign, new THREE.BoxGeometry(0.12, 0.12, 0.02), mat(CAUTION_BLACK), 0.16, -0.12, 0.05);
   for (let i = 0; i < 4; i++) {
     addMesh(g, new THREE.BoxGeometry(0.07, 0.04, 0.28), metalMat('#607D8B'), -0.32 + i * 0.14, 0.04, 0.08 + i * 0.07);
   }
@@ -424,8 +532,9 @@ function buildFallenSign(g: THREE.Group): void {
 function buildCheckpoint(g: THREE.Group): void {
   groundBase(g, 1.12);
   for (const ox of [-0.92, 0.92]) {
-    addMesh(g, new THREE.BoxGeometry(0.11, 0.92, 0.11), mat('#1a1a1a', { roughness: 0.85 }), ox, 0.46, 0);
-    addMesh(g, new THREE.BoxGeometry(0.15, 0.15, 0.15), mat('#F9A825', { roughness: 0.45 }), ox, 0.96, 0);
+    const pole = addMesh(g, new THREE.BoxGeometry(0.11, 0.92, 0.11), mat(CAUTION_BLACK, { roughness: 0.85 }), ox, 0.46, 0);
+    addCautionBand(pole, 0.13, 0.55, 0, 0.07, Math.PI / 2);
+    addMesh(g, new THREE.BoxGeometry(0.15, 0.15, 0.15), mat(CAUTION_YELLOW, { roughness: 0.45 }), ox, 0.96, 0);
   }
   addMesh(g, new THREE.BoxGeometry(1.9, 0.14, 0.12), mat('#1565C0', { roughness: 0.5, metalness: 0.25 }), 0, 0.82, 0);
   cautionStripes(g, 1.45, 0.52, 0.44, 0.09);
@@ -439,7 +548,14 @@ function buildTrafficBarricade(g: THREE.Group): void {
     addMesh(g, new THREE.CylinderGeometry(0.04, 0.04, 0.02, 6), mat('#212121'), ox, 0.02, 0.12);
   }
   for (let i = 0; i < 3; i++) {
-    const bar = addMesh(g, new THREE.BoxGeometry(1.15, 0.14, 0.08), mat(i % 2 === 0 ? '#F9A825' : '#212121', { roughness: 0.6 }), 0, 0.22 + i * 0.18, 0);
+    const bar = addMesh(
+      g,
+      new THREE.BoxGeometry(1.15, 0.14, 0.08),
+      mat(i % 2 === 0 ? CAUTION_YELLOW : CAUTION_BLACK, { roughness: 0.6 }),
+      0,
+      0.22 + i * 0.18,
+      0
+    );
     bar.rotation.z = (i - 1) * 0.04;
   }
   addMesh(g, new THREE.BoxGeometry(0.35, 0.22, 0.03), mat('#FAFAFA', { roughness: 0.7 }), 0, 0.48, 0.06);

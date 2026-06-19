@@ -62,6 +62,7 @@ export class SoundManager {
   private step = 0;
   private nextNoteTime = 0;
   private themeIdx = 0;
+  private bossMode = false;
 
   private ensure(): AudioContext | null {
     if (!this.unlocked) {
@@ -174,6 +175,17 @@ export class SoundManager {
   setDistrict(id: number): void {
     this.districtId = id;
     this.themeIdx = Math.min(Math.max(0, id - 1), THEMES.length - 1);
+    if (!this.bossMode) this.refreshMusic();
+  }
+
+  startBossMusic(): void {
+    this.bossMode = true;
+    this.refreshMusic();
+  }
+
+  endBossMusic(): void {
+    if (!this.bossMode) return;
+    this.bossMode = false;
     this.refreshMusic();
   }
 
@@ -205,8 +217,8 @@ export class SoundManager {
     const music = this.musicGain;
     if (!ctx || !music) return;
 
-    const theme = THEMES[this.themeIdx] ?? THEMES[0];
-    const sp16 = 60 / theme.bpm / 4;
+    const theme = THEMES[this.bossMode ? 2 : this.themeIdx] ?? THEMES[0];
+    const sp16 = 60 / (this.bossMode ? 148 : theme.bpm) / 4;
     const lookAhead = 0.18;
     const nightDark = this.night * 0.55;
     const filterCut = 2400 - nightDark * 900 + this.combatLayer * 400;
@@ -239,9 +251,13 @@ export class SoundManager {
       const melSemi = theme.melody[melIdx] ?? 0;
       const melOct = melSemi >= 7 ? 1 : 0;
       const melFreq = this.freqFromScale(theme, melSemi, melOct);
-      const melVol = 0.045 + (1 - nightDark) * 0.02 + this.combatLayer * 0.012;
-      if (s % 1 === 0 && melIdx % 2 === 0) {
-        this.toneAt(melFreq, t, sp16 * 0.9, theme.lead, melVol, music, 0, filterCut);
+      const melVol = (this.bossMode ? 0.058 : 0.045) + (1 - nightDark) * 0.02 + this.combatLayer * 0.012;
+      if (s % 1 === 0 && (melIdx % 2 === 0 || this.bossMode)) {
+        this.toneAt(melFreq, t, sp16 * 0.9, this.bossMode ? 'square' : theme.lead, melVol, music, 0, filterCut);
+      }
+
+      if (this.bossMode && beat16 % 8 === 4) {
+        this.toneAt(82, t, sp16 * 2, 'sawtooth', 0.055, music, -10, 420);
       }
 
       if (s % 8 === 0) {
@@ -257,6 +273,7 @@ export class SoundManager {
   }
 
   stopMusic(): void {
+    this.bossMode = false;
     this.musicPlaying = false;
     if (this.musicTimer !== null) {
       clearTimeout(this.musicTimer);
@@ -412,6 +429,25 @@ export class SoundManager {
   turbo(): void {
     this.tone(220, 0.2, 'sawtooth', 0.07, 180);
     this.noise(0.12, 0.05, 400);
+  }
+
+  slideBoost(): void {
+    this.tone(420, 0.08, 'square', 0.08, 120, 2800);
+    this.tone(660, 0.14, 'triangle', 0.07, 80, 3200);
+    this.noise(0.1, 0.05, 500);
+  }
+
+  bossShoot(): void {
+    this.tone(180, 0.08, 'sawtooth', 0.06, -40);
+    this.noise(0.05, 0.04, 300);
+  }
+
+  bossDefeated(): void {
+    this.tone(330, 0.12, 'square', 0.09);
+    this.tone(440, 0.12, 'square', 0.08, 0, 80);
+    this.tone(550, 0.18, 'triangle', 0.1, 0, 120);
+    this.tone(660, 0.28, 'triangle', 0.09, 0, 180);
+    this.noise(0.2, 0.06, 200);
   }
 
   spectacle(kind: string): void {

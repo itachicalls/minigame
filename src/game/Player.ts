@@ -286,6 +286,15 @@ export class Player {
     return true;
   }
 
+  /** Boost pad — force slide + extended timer for speed burst. */
+  boostSlide(duration = 1.15): void {
+    this.isJumping = false;
+    this.jumpY = 0;
+    this.jumpVel = 0;
+    this.isSliding = true;
+    this.slideTimer = Math.max(this.slideTimer, duration);
+  }
+
   setJumpPower(power: number): void {
     this.jumpPower = power;
   }

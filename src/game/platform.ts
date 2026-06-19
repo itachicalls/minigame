@@ -12,7 +12,7 @@ export const ENABLE_TONE_MAPPING = true;
 export const ENABLE_BLOOM = true;
 export const BLOOM_RES_SCALE = IS_MOBILE ? 0.4 : 0.32;
 
-export const NEAR_RANGE = IS_MOBILE ? 48 : 58;
+export const NEAR_RANGE = IS_MOBILE ? 44 : 58;
 export const WORLD_AHEAD = IS_MOBILE ? 72 : 80;
 export const WORLD_BEHIND = IS_MOBILE ? 28 : 32;
 export const SKY_RES = IS_MOBILE ? 256 : 320;

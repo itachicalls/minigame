@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { addMesh, mat, disposeObject3D } from './ModelUtils';
 import { IS_MOBILE, isNearZ } from './platform';
+import { getCautionStripeTexture } from './HazardVisuals';
 
 export const ROAD_LANES = [-3.2, -1.6, 0, 1.6, 3.2] as const;
 
@@ -128,12 +129,16 @@ function buildFloorZone(
   clearance: BarClearance
 ): THREE.Mesh[] {
   const pulses: THREE.Mesh[] = [];
-  const seg = IS_MOBILE ? 10 : 16;
+  const zoneW = span * 1.05;
+  const zoneL = IS_MOBILE ? 1.35 : 1.65;
+
+  const tex = getCautionStripeTexture();
+  tex.repeat.set(zoneW / 0.35, 1);
 
   const base = addMesh(
     parent,
-    new THREE.CircleGeometry(span * 0.52, seg),
-    mat('#1a1f28', { roughness: 0.95, metalness: 0.15 }),
+    new THREE.PlaneGeometry(zoneW, zoneL),
+    mat('#3d4650', { roughness: 0.96, metalness: 0.04 }),
     0,
     0.004,
     0,
@@ -141,47 +146,52 @@ function buildFloorZone(
   );
   base.rotation.x = -Math.PI / 2;
 
-  const ring = addMesh(
+  const stripe = addMesh(
     parent,
-    new THREE.RingGeometry(span * 0.38, span * 0.54, seg),
-    glowMat(palette.floor, IS_MOBILE ? 0.55 : 0.72),
+    new THREE.PlaneGeometry(zoneW * 0.94, zoneL * 0.72),
+    mat('#FFFFFF', {
+      map: tex,
+      transparent: true,
+      opacity: IS_MOBILE ? 0.55 : 0.68,
+      roughness: 0.85,
+      emissive: palette.floor,
+      emissiveIntensity: 0.08,
+      depthWrite: false,
+    }),
     0,
     0.006,
     0,
     false
   );
-  ring.rotation.x = -Math.PI / 2;
-  ring.userData.isFloorRing = true;
-  pulses.push(ring);
+  stripe.rotation.x = -Math.PI / 2;
+  stripe.userData.isFloorRing = true;
+  pulses.push(stripe);
 
-  const inner = addMesh(
-    parent,
-    new THREE.RingGeometry(span * 0.12, span * 0.22, seg),
-    glowMat(palette.glow, 0.35),
-    0,
-    0.007,
-    0,
-    false
-  );
-  inner.rotation.x = -Math.PI / 2;
-  inner.userData.isFloorRing = true;
-  pulses.push(inner);
-
-  for (let i = 0; i < 4; i++) {
-    const a = (i / 4) * Math.PI * 2;
-    const chev = addMesh(
+  if (!IS_MOBILE) {
+    const icon = addMesh(
       parent,
-      new THREE.PlaneGeometry(0.22, 0.22),
-      glowMat(clearance === 'jump' ? palette.sparkA : palette.sparkB, 0.5),
-      Math.cos(a) * span * 0.32,
+      new THREE.PlaneGeometry(0.28, 0.28),
+      glowMat(palette.sparkA, 0.45),
+      0,
       0.02,
-      Math.sin(a) * span * 0.32,
+      0,
       false
     );
-    chev.rotation.x = -Math.PI / 2;
-    chev.rotation.z = a + Math.PI / 2;
-    chev.userData.isChevron = true;
-    chev.userData.chevPhase = i;
+    icon.rotation.x = -Math.PI / 2;
+    icon.userData.isChevron = true;
+  }
+
+  for (let i = 0; i < (IS_MOBILE ? 2 : 3); i++) {
+    const ox = (i - 1) * (zoneW * 0.32);
+    const post = addMesh(
+      parent,
+      new THREE.CylinderGeometry(0.025, 0.032, 0.22, 4),
+      mat('#FFC107', { emissive: '#FF9800', emissiveIntensity: 0.35, roughness: 0.65 }),
+      ox,
+      0.11,
+      zoneL * 0.38
+    );
+    post.userData.isWarningPost = true;
   }
 
   return pulses;
@@ -616,9 +626,8 @@ function animateBarVisuals(bar: ElectricBarEntity, time: number): void {
 
   for (const fp of bar.floorPulse) {
     const m = fp.material as THREE.MeshBasicMaterial;
-    m.opacity = 0.4 + pulse * 0.3 + telegraphBoost * 0.25;
-    fp.rotation.z = time * 0.6;
-    fp.scale.setScalar(1 + pulse * 0.06 + telegraphBoost * 0.08);
+    m.opacity = (IS_MOBILE ? 0.48 : 0.58) + pulse * 0.22 + telegraphBoost * 0.2;
+    fp.scale.setScalar(1 + pulse * 0.03 + telegraphBoost * 0.05);
   }
 
   for (const g of bar.warningGlyphs) {
