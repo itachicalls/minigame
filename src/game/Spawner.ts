@@ -1,5 +1,7 @@
 import { IS_MOBILE } from './platform';
 import type { BarClearance, BarMotion, BarSpan, CreateBarOptions } from './ElectricBars';
+import type { ObstacleKind } from '../types';
+import { pickRandomHazardForLevel } from '../data/hazards';
 /** Five full lanes including center — Temple Run style */
 export const LANES = [-3.2, -1.6, 0, 1.6, 3.2] as const;
 
@@ -15,9 +17,9 @@ export function pickAdjacentLanes(): number[] {
 let barClearanceFlip = false;
 
 export function pickBarSpawn(difficulty: number): CreateBarOptions {
-  const sweepChance = difficulty >= 6 ? 0.14 : difficulty >= 4 ? 0.1 : difficulty >= 2 ? 0.06 : 0.03;
-  const fullChance = difficulty >= 5 ? 0.2 : difficulty >= 3 ? 0.14 : 0.08;
-  const twoLaneChance = difficulty >= 3 ? 0.24 : difficulty >= 2 ? 0.16 : 0.1;
+  const sweepChance = difficulty >= 6 ? 0.12 : difficulty >= 4 ? 0.08 : difficulty >= 2 ? 0.05 : 0.02;
+  const fullChance = difficulty >= 5 ? 0.16 : difficulty >= 3 ? 0.11 : 0.06;
+  const twoLaneChance = difficulty >= 3 ? 0.2 : difficulty >= 2 ? 0.14 : 0.08;
 
   barClearanceFlip = !barClearanceFlip;
   const clearance: BarClearance =
@@ -51,8 +53,33 @@ export function pickBarSpawn(difficulty: number): CreateBarOptions {
 }
 
 export function barSpacing(difficulty: number): number {
-  const base = Math.max(18, 30 - difficulty * 1.05);
-  return IS_MOBILE ? base + 6 : base;
+  const base = Math.max(20, 32 - difficulty * 1.0);
+  return IS_MOBILE ? base + 8 : base;
+}
+
+/** Prop hazards — fewer than before, wider spacing */
+export function pickObstacleLanes(): number[] {
+  if (Math.random() < (IS_MOBILE ? 0.06 : 0.12)) {
+    const used = new Set<number>();
+    const picked: number[] = [];
+    while (picked.length < 2) {
+      const lane = pickRandomLane();
+      if (used.has(lane)) continue;
+      used.add(lane);
+      picked.push(lane);
+    }
+    return picked;
+  }
+  return [pickRandomLane()];
+}
+
+export function pickObstacleForLevel(levelId: string): ObstacleKind {
+  return pickRandomHazardForLevel(levelId);
+}
+
+export function obstacleSpacing(difficulty: number): number {
+  const base = Math.max(32, 48 - difficulty * 0.85);
+  return IS_MOBILE ? base + 14 : base;
 }
 
 export function runnerSpacing(difficulty: number): number {

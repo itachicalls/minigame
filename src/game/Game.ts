@@ -22,6 +22,13 @@ import {
   type ElectricBarEntity,
 } from './ElectricBars';
 import {
+  createObstacle,
+  updateObstacles,
+  disposeObstacles,
+  obstacleClearHeight,
+  type ObstacleEntity,
+} from './Obstacles';
+import {
   createPackagePickups,
   updatePackagePickups,
   tryCollectPackages,
@@ -57,6 +64,9 @@ import {
   pickRandomLane,
   pickBarSpawn,
   barSpacing,
+  pickObstacleLanes,
+  pickObstacleForLevel,
+  obstacleSpacing,
   runnerSpacing,
   powerUpSpacing,
   packageSpacing,
@@ -122,6 +132,7 @@ export class Game {
 
   private routeGates: GateEntity[] = [];
   private electricBars: ElectricBarEntity[] = [];
+  private obstacles: ObstacleEntity[] = [];
   private runners: RunnerEntity[] = [];
   private coins: CoinEntity[] = [];
   private packagePickups: PackagePickup[] = [];
@@ -178,6 +189,7 @@ export class Game {
   private deathReason: DeathReason = 'stolen';
 
   private nextBarZ = 35;
+  private nextObstacleZ = 55;
   private nextRunnerZ = 50;
   private nextPowerUpZ = 80;
   private nextPackageZ = 25;
@@ -412,6 +424,7 @@ export class Game {
     this.spawnHorizon = this.levelLength - 30;
 
     this.nextBarZ = 38;
+    this.nextObstacleZ = 62 + Math.floor(Math.random() * 18);
     this.nextRunnerZ = 38 + Math.random() * 12;
     this.nextPowerUpZ = 28 + Math.random() * 12;
     this.nextPackageZ = 20;
@@ -782,6 +795,7 @@ export class Game {
     }
     if (this.dropoff && isNearZ(this.dropoff.z, pz, IS_MOBILE ? 42 : 55)) animateDropoff(this.dropoff, this.gameTime);
     updateElectricBars(this.electricBars, this.gameTime, pz, () => sfx.telegraphWarn());
+    updateObstacles(this.obstacles, this.gameTime, pz, this.world.getGameplayNight());
 
     const collectRadius = this.pickupRadius + (this.magnetTimer > 0 ? 2.8 : 0);
     const coinGain = tryCollectCoin(this.coins, this.player.x, this.player.z, collectRadius);
@@ -819,6 +833,7 @@ export class Game {
 
     this.checkThrowHits();
     this.checkElectricBars();
+    this.checkObstacles();
     this.checkNearMisses();
     this.checkRunners();
     this.checkRouteGates();
@@ -912,7 +927,8 @@ export class Game {
     const ahead = this.player.z + spawnAhead;
     const maxPerFrame = 1;
 
-    const maxBars = IS_MOBILE ? 6 : 10;
+    const maxBars = IS_MOBILE ? 5 : 8;
+    const maxObstacles = IS_MOBILE ? 4 : 6;
     const maxRunners = IS_MOBILE ? 9 : 12;
     const maxPowerUps = IS_MOBILE ? 6 : 10;
 
@@ -924,8 +940,22 @@ export class Game {
       this.electricBars.push(
         createElectricBar(this.scene, this.nextBarZ, { ...spec, district: this.level.district })
       );
-      this.nextBarZ += barSpacing(diff) + Math.random() * 8;
+      this.nextBarZ += barSpacing(diff) + Math.random() * 10;
       barN++;
+    }
+
+    let obsN = 0;
+    while (this.nextObstacleZ < ahead && this.nextObstacleZ < this.spawnHorizon && obsN < maxPerFrame) {
+      if (this.obstacles.filter((o) => !o.hit).length >= maxObstacles) break;
+      const lanes = pickObstacleLanes();
+      const laneLimit = IS_MOBILE ? 1 : lanes.length;
+      for (let i = 0; i < laneLimit; i++) {
+        this.obstacles.push(
+          createObstacle(this.scene, pickObstacleForLevel(this.level.id), lanes[i], this.nextObstacleZ)
+        );
+      }
+      this.nextObstacleZ += obstacleSpacing(diff) + Math.random() * 14;
+      obsN++;
     }
 
     let runN = 0;
@@ -1004,6 +1034,17 @@ export class Game {
       }
     }
 
+    for (const obs of this.obstacles) {
+      if (obs.hit) continue;
+      const dx = obs.x - px;
+      const dz = obs.z - pz;
+      if (dx * dx + dz * dz <= r2) {
+        obs.hit = true;
+        obs.mesh.visible = false;
+        this.particles.hitBurst(obs.x, obs.z);
+      }
+    }
+
     const killed: RunnerEntity[] = [];
     for (const r of this.runners) {
       if (!r.alive) continue;
@@ -1030,6 +1071,12 @@ export class Game {
     if (barCull.length) {
       disposeElectricBars(barCull, this.scene);
       this.electricBars = this.electricBars.filter((b) => b.z >= minZ);
+    }
+
+    const obsCull = this.obstacles.filter((o) => o.z < minZ);
+    if (obsCull.length) {
+      disposeObstacles(obsCull, this.scene);
+      this.obstacles = this.obstacles.filter((o) => o.z >= minZ);
     }
 
     const runnerCull = this.runners.filter((r) => r.z < minZ);
@@ -1247,22 +1294,43 @@ export class Game {
       if (playerInBarLanes(this.player.x, b)) continue;
       if (this.player.isJumping || this.player.isSliding || this.dashActive) {
         b.styleAwarded = true;
-        this.run.coins += 5;
-        sfx.nearMiss();
-        this.convoy.reactTurbo();
-        this.styleStreak++;
-        this.styleStreakTimer = 4;
-        if (this.styleStreak >= 3) {
-          this.styleStreak = 0;
-          this.magnetTimer = 5;
-          this.cb.onToast('🔗 STYLE MAGNET!');
-          sfx.honk();
-        } else if (this.styleStreak === 2) {
-          this.cb.onToast('✨ Style ×2 — one more!');
-        } else {
-          this.cb.onToast('✨ STYLE +5');
+        this.awardStyleNearMiss();
+      }
+    }
+
+    for (const obs of this.obstacles) {
+      if (obs.hit) continue;
+      const dz = this.player.z - obs.z;
+      if (dz < 0.8 || dz > 2.2) continue;
+      const dx = Math.abs(this.player.x - obs.x);
+      const edgeLo = obs.radius - 0.05;
+      const edgeHi = obs.radius + 0.45;
+      if (dx >= edgeLo && dx <= edgeHi) {
+        if (this.player.isJumping || this.player.isSliding || this.dashActive) {
+          if (!obs.mesh.userData.styleAwarded) {
+            obs.mesh.userData.styleAwarded = true;
+            this.awardStyleNearMiss();
+          }
         }
       }
+    }
+  }
+
+  private awardStyleNearMiss(): void {
+    this.run.coins += 5;
+    sfx.nearMiss();
+    this.convoy.reactTurbo();
+    this.styleStreak++;
+    this.styleStreakTimer = 4;
+    if (this.styleStreak >= 3) {
+      this.styleStreak = 0;
+      this.magnetTimer = 5;
+      this.cb.onToast('🔗 STYLE MAGNET!');
+      sfx.honk();
+    } else if (this.styleStreak === 2) {
+      this.cb.onToast('✨ Style ×2 — one more!');
+    } else {
+      this.cb.onToast('✨ STYLE +5');
     }
   }
 
@@ -1324,6 +1392,30 @@ export class Game {
       this.die(source === 'runner' ? 'overwhelmed' : 'stolen');
     } else {
       this.emitHud(this.level.timeLimit - this.elapsed);
+    }
+  }
+
+  private checkObstacles(): void {
+    if (this.isProtected()) return;
+
+    for (const obs of this.obstacles) {
+      if (obs.hit) continue;
+      const dz = Math.abs(this.player.z - obs.z);
+      if (dz > 1.4) continue;
+      const dx = Math.abs(this.player.x - obs.x);
+      if (dx > obs.radius + 0.3) continue;
+      if (this.player.jumpY > obstacleClearHeight(obs.kind) + 0.08) continue;
+      if (this.dashActive) {
+        obs.hit = true;
+        obs.mesh.visible = false;
+        this.particles.hitBurst(obs.x, obs.z);
+        continue;
+      }
+
+      obs.hit = true;
+      obs.mesh.visible = false;
+      this.takeHit('obstacle');
+      return;
     }
   }
 
@@ -1614,6 +1706,7 @@ export class Game {
   private cleanup(): void {
     for (const g of this.routeGates) disposeEntity(g.mesh, this.scene);
     disposeElectricBars(this.electricBars, this.scene);
+    disposeObstacles(this.obstacles, this.scene);
     disposeRunners(this.runners, this.scene);
     disposeCoins(this.coins, this.scene);
     disposePickups(this.packagePickups, this.scene);
@@ -1623,6 +1716,7 @@ export class Game {
     this.particles.clear();
     this.routeGates = [];
     this.electricBars = [];
+    this.obstacles = [];
     this.runners = [];
     this.coins = [];
     this.packagePickups = [];
