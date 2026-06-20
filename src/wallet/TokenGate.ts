@@ -9,7 +9,6 @@ import {
   consumePhantomRejectMessage,
   handlePhantomCallback,
   startPhantomConnect,
-  startPhantomSign,
   clearMobileWalletSession,
 } from './phantomMobile';
 import { clearCachedVerify } from './verifyCache';
@@ -133,7 +132,7 @@ export class TokenGate {
       this.setSnapshot({
         status: 'connecting',
         walletAddress: null,
-        message: 'Opening your wallet… approve connect, then sign. You return here to play.',
+        message: 'Approve in your wallet app — you return here to play.',
       });
       startPhantomConnect();
       return;
@@ -231,12 +230,14 @@ export class TokenGate {
       const result = handlePhantomCallback();
       if (result === 'connect_ok') {
         const address = getMobileWalletAddress();
+        if (!address) return;
+        this.signedWallet = address;
         this.setSnapshot({
-          status: 'signing',
+          status: 'checking',
           walletAddress: address,
-          message: 'Connected. Approve the signature in your wallet…',
+          message: 'Connected. Checking your balance…',
         });
-        startPhantomSign();
+        await this.verify();
         return;
       }
 

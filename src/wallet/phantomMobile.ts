@@ -14,15 +14,10 @@ export interface PhantomMobileSession {
   signed?: boolean;
 }
 
-function appOrigin(): string {
-  return window.location.origin;
-}
-
 function redirectLink(step: 'connect' | 'sign'): string {
-  const base = import.meta.env.BASE_URL.endsWith('/')
-    ? import.meta.env.BASE_URL
-    : `${import.meta.env.BASE_URL}/`;
-  const url = new URL(base, appOrigin());
+  const url = new URL(window.location.href);
+  url.search = '';
+  url.hash = '';
   url.searchParams.set('phantom', step);
   return url.toString();
 }
@@ -68,14 +63,13 @@ function encryptPayload(payload: unknown, secret: Uint8Array): [Uint8Array, Uint
   return [nonce, encrypted];
 }
 
-/** Mobile Safari/Chrome — deeplink to wallet app, return to this browser. */
 export function isInsidePhantomBrowser(): boolean {
   return Boolean(window.solana?.isPhantom);
 }
 
+/** Safari/Chrome on phone — deeplink to wallet app, return to this browser tab. */
 export function usesMobileWalletBridge(): boolean {
   if (!IS_MOBILE) return false;
-  // In Phantom's in-app browser use the injected wallet; Safari/Chrome use deeplinks.
   if (isInsidePhantomBrowser()) return false;
   return true;
 }
@@ -115,15 +109,22 @@ export function startPhantomConnect(): void {
   });
 
   const params = new URLSearchParams({
-    app_url: appOrigin(),
+    app_url: window.location.origin,
     dapp_encryption_public_key: bs58.encode(keyPair.publicKey),
     redirect_link: redirectLink('connect'),
     cluster: 'mainnet-beta',
   });
 
-  window.location.assign(`https://phantom.app/ul/v1/connect?${params.toString()}`);
+  const url = `https://phantom.app/ul/v1/connect?${params.toString()}`;
+
+  // Keep this Safari/Chrome tab open — opens wallet app, then redirects back here.
+  const opened = window.open(url, '_blank', 'noopener,noreferrer');
+  if (!opened) {
+    window.location.href = url;
+  }
 }
 
+/** Desktop / in-Phantom-browser only — mobile Safari uses connect-only flow. */
 export function startPhantomSign(): void {
   const session = loadSession();
   if (!session?.sharedSecret || !session.phantomSession || !session.walletAddress) {
@@ -148,13 +149,17 @@ export function startPhantomSign(): void {
     payload: bs58.encode(encrypted),
   });
 
-  window.location.assign(`https://phantom.app/ul/v1/signMessage?${params.toString()}`);
+  const url = `https://phantom.app/ul/v1/signMessage?${params.toString()}`;
+  const opened = window.open(url, '_blank', 'noopener,noreferrer');
+  if (!opened) {
+    window.location.href = url;
+  }
 }
 
 export function consumePhantomRejectMessage(): string | null {
   const params = new URLSearchParams(window.location.search);
   if (!params.get('errorCode')) return null;
-  const msg = params.get('errorMessage') || 'Request rejected in Phantom.';
+  const msg = params.get('errorMessage') || 'Request rejected in wallet.';
   clearPhantomQueryParams();
   return msg;
 }
@@ -196,7 +201,7 @@ export function handlePhantomCallback(): PhantomCallbackResult {
       sharedSecret: bs58.encode(shared),
       phantomSession: payload.session,
       walletAddress: payload.public_key,
-      signed: false,
+      signed: true,
     });
     clearPhantomQueryParams();
     return 'connect_ok';
@@ -221,7 +226,7 @@ export function mobileWalletHint(): string {
     return 'Install Phantom or Solflare, refresh, then connect.';
   }
   if (isInsidePhantomBrowser()) {
-    return 'Copy the site link and open it in Safari to play in your browser, or connect here.';
+    return 'Copy the link below and open it in Safari to play in your browser.';
   }
-  return 'Tap Connect — your wallet app opens briefly, then you play here in Safari/Chrome.';
+  return 'Tap Connect — approve in your wallet app, then you return here to play.';
 }

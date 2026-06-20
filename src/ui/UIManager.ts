@@ -147,8 +147,8 @@ export class UIManager {
               ${TOKEN_GATE_ENABLED ? `
               ${IS_MOBILE && isInsidePhantomBrowser() ? `
               <div class="wallet-browser-banner" id="wallet-browser-banner">
-                <p>You're in Phantom's browser. For Safari/Chrome play, copy this link and open it there:</p>
-                <button type="button" class="wallet-btn wallet-btn-ghost" id="btn-copy-safari-link">Copy link for Safari</button>
+                <p>You're in a wallet browser. Copy this link and open it in <strong>Safari</strong> to play there:</p>
+                <button type="button" class="wallet-btn wallet-btn-ghost" id="btn-copy-safari-link">Copy mailrun.xyz link</button>
               </div>` : ''}
               <div class="wallet-gate" id="wallet-gate">
                 <div class="wallet-gate-accent" aria-hidden="true"></div>
@@ -162,8 +162,8 @@ export class UIManager {
                 <p class="wallet-gate-desc">${
                   IS_MOBILE
                     ? isInsidePhantomBrowser()
-                      ? 'Connect here, or copy the link above and open in <strong>Safari</strong> to play in your browser.'
-                      : 'Tap <strong>Connect</strong> — your wallet app opens briefly, then you play here. Hold <strong>$' +
+                      ? 'Connect here, or copy the link below and open in <strong>Safari</strong>.'
+                      : 'Tap <strong>Connect Wallet</strong> — approve once in your wallet app, then play here. Hold <strong>$' +
                         MIN_HOLDING_USD +
                         '+</strong> of the token.'
                     : 'Connect <strong>Phantom</strong> or <strong>Solflare</strong>, sign, and hold <strong>$' +
@@ -179,8 +179,8 @@ export class UIManager {
                     <div class="wallet-message">${
                       IS_MOBILE
                         ? isInsidePhantomBrowser()
-                          ? 'Playing inside Phantom works, but Safari/Chrome is recommended.'
-                          : 'You stay in this browser — your wallet app only opens to connect and sign.'
+                          ? 'Tip: open mailrun.xyz in Safari for the best experience.'
+                          : 'Stay on this page — your wallet app opens, then sends you back here.'
                         : 'Tap Connect — approve connection, then approve the signature.'
                     }</div>
                   </div>
@@ -312,11 +312,11 @@ export class UIManager {
     } else if (snap.status === 'connecting') {
       gateEl.classList.add('checking');
       statusChip.classList.add('checking');
-      statusLabel.textContent = 'Connect in Phantom';
+      statusLabel.textContent = 'Waiting for wallet';
     } else if (snap.status === 'signing') {
       gateEl.classList.add('signing');
       statusChip.classList.add('signing');
-      statusLabel.textContent = 'Sign in Phantom';
+      statusLabel.textContent = 'Approve in wallet';
     } else if (snap.status === 'checking') {
       gateEl.classList.add('checking');
       statusChip.classList.add('checking');
