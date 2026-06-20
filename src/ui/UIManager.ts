@@ -12,6 +12,8 @@ import { mountCharacterPreview } from './CharacterPreview';
 import { IS_MOBILE } from '../game/platform';
 import { setGameActive } from '../game/viewport';
 import { hazardPoolLabels } from '../data/hazards';
+import { TokenGate } from '../wallet/TokenGate';
+import { GAME_TOKEN_MINT, MIN_HOLDING_USD, PUMP_FUN_URL, shortMint, TOKEN_GATE_ENABLED } from '../wallet/config';
 
 const DISTRICT_MOOD: Record<number, string> = {
   1: 'district-sunny',
@@ -53,15 +55,22 @@ type Screen = 'menu' | 'levels' | 'shop' | 'briefing' | 'game' | 'results';
 export class UIManager {
   private root: HTMLElement;
   private save: SaveManager;
+  private tokenGate: TokenGate;
+  private gateUnsub: (() => void) | null = null;
+  private menuScreen: HTMLElement | null = null;
   private game: Game | null = null;
   private screen: Screen = 'menu';
   private hudCache: Partial<HudData> = {};
   private tapHintTimer: ReturnType<typeof setTimeout> | null = null;
   private activeLevelId = '';
 
-  constructor(root: HTMLElement, save: SaveManager) {
+  constructor(root: HTMLElement, save: SaveManager, tokenGate: TokenGate) {
     this.root = root;
     this.save = save;
+    this.tokenGate = tokenGate;
+    this.gateUnsub = tokenGate.subscribe(() => {
+      if (this.screen === 'menu' && this.menuScreen) this.syncWalletGateUI(this.menuScreen);
+    });
     this.showMenu();
   }
 
@@ -132,8 +141,39 @@ export class UIManager {
             <div class="stat-pill stat-pill-glow"><span>🪙</span> ${s.coins}</div>
             <div class="stat-pill"><span>📦</span> ${s.totalDeliveries} drops</div>
           </div>
+          ${TOKEN_GATE_ENABLED ? `
+          <div class="wallet-gate" id="wallet-gate">
+            <div class="wallet-gate-accent" aria-hidden="true"></div>
+            <div class="wallet-gate-head">
+              <div class="wallet-gate-brand">
+                <span class="wallet-gate-icon" aria-hidden="true">◎</span>
+                <span class="wallet-gate-badge">Holder Gate</span>
+              </div>
+              <code class="wallet-gate-mint" title="${GAME_TOKEN_MINT}">${shortMint()}</code>
+            </div>
+            <p class="wallet-gate-desc">Hold <strong>$${MIN_HOLDING_USD}+</strong> of the game token to unlock runs.</p>
+            <div class="wallet-gate-body">
+              <div class="wallet-status-chip" id="wallet-status-chip">
+                <span class="wallet-status-dot" id="wallet-status-dot" aria-hidden="true"></span>
+                <span id="wallet-status-label">Checking access…</span>
+              </div>
+              <div class="wallet-gate-status" id="wallet-gate-status"></div>
+              <div class="wallet-gate-actions">
+                <button type="button" class="wallet-btn wallet-btn-connect" id="btn-wallet-connect">Connect Wallet</button>
+                <div class="wallet-connected-pill hidden" id="wallet-connected-pill" aria-live="polite">
+                  <span class="wallet-connected-check" aria-hidden="true">✓</span>
+                  Wallet Connected
+                </div>
+                <div class="wallet-action-row hidden" id="wallet-action-row">
+                  <button type="button" class="wallet-btn wallet-btn-ghost" id="btn-wallet-recheck">Recheck</button>
+                  <button type="button" class="wallet-btn wallet-btn-ghost wallet-btn-disconnect" id="btn-wallet-disconnect">Disconnect</button>
+                </div>
+              </div>
+            </div>
+            <a class="wallet-buy-link" href="${PUMP_FUN_URL}" target="_blank" rel="noopener noreferrer">Buy on Pump.fun ↗</a>
+          </div>` : ''}
           <div class="menu-buttons">
-            <button class="btn btn-primary btn-glow btn-hero" id="btn-play">▶ Start Run</button>
+            <button class="btn btn-primary btn-glow btn-hero" id="btn-play" ${TOKEN_GATE_ENABLED ? 'disabled' : ''}>▶ Start Run</button>
             <button class="btn btn-secondary btn-hero-secondary" id="btn-shop">🛒 Shop & Loadout</button>
           </div>
           <button class="btn btn-ghost btn-small" id="btn-reset">Reset Save</button>
@@ -141,6 +181,8 @@ export class UIManager {
       </div>
     `);
     this.root.appendChild(screen);
+    this.menuScreen = screen;
+    if (TOKEN_GATE_ENABLED) this.bindWalletGate(screen);
 
     screen.querySelectorAll('.character-preview').forEach((el) => {
       const id = (el as HTMLElement).dataset.preview as MailmanId;
@@ -160,7 +202,9 @@ export class UIManager {
       });
     });
 
-    screen.querySelector('#btn-play')!.addEventListener('click', () => this.showLevels());
+    screen.querySelector('#btn-play')!.addEventListener('click', () => {
+      void this.requireTokenAccess(() => this.showLevels());
+    });
     screen.querySelector('#btn-shop')!.addEventListener('click', () => this.showShop());
     screen.querySelector('#btn-reset')!.addEventListener('click', () => {
       if (confirm('Reset all progress?')) {
@@ -170,7 +214,122 @@ export class UIManager {
     });
   }
 
+  private bindWalletGate(screen: HTMLElement): void {
+    screen.querySelector('#btn-wallet-connect')!.addEventListener('click', () => {
+      void this.tokenGate.connect();
+    });
+    screen.querySelector('#btn-wallet-recheck')!.addEventListener('click', () => {
+      void this.tokenGate.verify();
+    });
+    screen.querySelector('#btn-wallet-disconnect')!.addEventListener('click', () => {
+      void this.tokenGate.disconnect();
+    });
+    this.syncWalletGateUI(screen);
+    void this.tokenGate.verify();
+  }
+
+  private syncWalletGateUI(screen: HTMLElement): void {
+    const snap = this.tokenGate.getSnapshot();
+    const statusEl = screen.querySelector('#wallet-gate-status') as HTMLElement | null;
+    const statusChip = screen.querySelector('#wallet-status-chip') as HTMLElement | null;
+    const statusLabel = screen.querySelector('#wallet-status-label') as HTMLElement | null;
+    const playBtn = screen.querySelector('#btn-play') as HTMLButtonElement | null;
+    const connectBtn = screen.querySelector('#btn-wallet-connect') as HTMLButtonElement | null;
+    const connectedPill = screen.querySelector('#wallet-connected-pill') as HTMLElement | null;
+    const actionRow = screen.querySelector('#wallet-action-row') as HTMLElement | null;
+    const recheckBtn = screen.querySelector('#btn-wallet-recheck') as HTMLButtonElement | null;
+    const disconnectBtn = screen.querySelector('#btn-wallet-disconnect') as HTMLButtonElement | null;
+    const gateEl = screen.querySelector('#wallet-gate') as HTMLElement | null;
+
+    if (
+      !statusEl ||
+      !statusChip ||
+      !statusLabel ||
+      !playBtn ||
+      !connectBtn ||
+      !connectedPill ||
+      !actionRow ||
+      !recheckBtn ||
+      !disconnectBtn ||
+      !gateEl
+    ) {
+      return;
+    }
+
+    gateEl.classList.remove('granted', 'denied', 'checking', 'error', 'connected');
+    statusChip.classList.remove('granted', 'denied', 'checking', 'error', 'disconnected');
+
+    if (snap.status === 'granted') {
+      gateEl.classList.add('granted');
+      statusChip.classList.add('granted');
+      statusLabel.textContent = 'Access granted';
+    } else if (snap.status === 'denied') {
+      gateEl.classList.add('denied');
+      statusChip.classList.add('denied');
+      statusLabel.textContent = 'Insufficient balance';
+    } else if (snap.status === 'checking' || snap.status === 'connecting') {
+      gateEl.classList.add('checking');
+      statusChip.classList.add('checking');
+      statusLabel.textContent = snap.status === 'connecting' ? 'Connecting wallet…' : 'Verifying holdings…';
+    } else if (snap.status === 'error') {
+      gateEl.classList.add('error');
+      statusChip.classList.add('error');
+      statusLabel.textContent = 'Verification error';
+    } else {
+      statusChip.classList.add('disconnected');
+      statusLabel.textContent = 'Wallet not connected';
+    }
+
+    const connected = snap.walletAddress != null;
+    if (connected) gateEl.classList.add('connected');
+
+    if (connected && snap.walletAddress) {
+      const holding =
+        snap.holdingUsd != null && snap.tokenSymbol
+          ? `<div class="wallet-holding-value">~$${snap.holdingUsd.toFixed(2)} <span>of $${snap.tokenSymbol}</span></div>`
+          : '';
+      statusEl.innerHTML = `
+        <div class="wallet-address-row">
+          <span class="wallet-address-label">Wallet</span>
+          <span class="wallet-address">${snap.walletAddress.slice(0, 4)}…${snap.walletAddress.slice(-4)}</span>
+        </div>
+        ${holding}
+        <div class="wallet-message">${snap.message}</div>`;
+    } else {
+      statusEl.innerHTML = `<div class="wallet-message">${snap.message}</div>`;
+    }
+
+    const granted = this.tokenGate.hasAccess();
+    playBtn.disabled = !granted;
+    playBtn.title = granted ? '' : `Hold at least $${MIN_HOLDING_USD} of the game token to play`;
+
+    const busy = snap.status === 'connecting' || snap.status === 'checking';
+    connectBtn.classList.toggle('hidden', connected);
+    connectedPill.classList.toggle('hidden', !connected);
+    actionRow.classList.toggle('hidden', !connected);
+
+    if (!connected) {
+      connectBtn.textContent =
+        snap.status === 'connecting' ? 'Connecting…' : busy ? 'Please wait…' : 'Connect Wallet';
+    }
+
+    connectBtn.disabled = busy;
+    recheckBtn.disabled = busy;
+    disconnectBtn.disabled = busy;
+  }
+
+  private async requireTokenAccess(onGranted: () => void): Promise<void> {
+    if (this.tokenGate.hasAccess()) {
+      onGranted();
+      return;
+    }
+    const ok = await this.tokenGate.verify();
+    if (ok) onGranted();
+    else this.toast(this.tokenGate.getSnapshot().message);
+  }
+
   showLevels(): void {
+    this.menuScreen = null;
     this.screen = 'levels';
     this.setCanvasVisible(false);
     this.clear();
@@ -274,7 +433,9 @@ export class UIManager {
       </div>
     `);
     this.root.appendChild(screen);
-    screen.querySelector('#btn-start')!.addEventListener('click', () => this.startGame(levelId));
+    screen.querySelector('#btn-start')!.addEventListener('click', () => {
+      void this.requireTokenAccess(() => this.startGame(levelId));
+    });
     screen.querySelector('#btn-back')!.addEventListener('click', () => this.showLevels());
   }
 
@@ -377,6 +538,12 @@ export class UIManager {
   }
 
   private startGame(levelId: string): void {
+    if (!this.tokenGate.hasAccess()) {
+      this.toast(this.tokenGate.getSnapshot().message);
+      this.showMenu();
+      return;
+    }
+
     this.activeLevelId = levelId;
     this.screen = 'game';
     setGameActive(true);
@@ -546,7 +713,7 @@ export class UIManager {
       this.game?.dispose();
       this.game = null;
       setGameActive(false);
-      this.showLevels();
+      void this.requireTokenAccess(() => this.showLevels());
     });
 
     document.getElementById('special-btn')!.addEventListener('pointerdown', (e) => {
@@ -723,9 +890,13 @@ export class UIManager {
     this.root.appendChild(screen);
 
     if (canNext) {
-      screen.querySelector('#btn-next')!.addEventListener('click', () => this.showBriefing(next!));
+      screen.querySelector('#btn-next')!.addEventListener('click', () => {
+        void this.requireTokenAccess(() => this.showBriefing(next!));
+      });
     }
-    screen.querySelector('#btn-retry')!.addEventListener('click', () => this.showBriefing(result.levelId));
+    screen.querySelector('#btn-retry')!.addEventListener('click', () => {
+      void this.requireTokenAccess(() => this.showBriefing(result.levelId));
+    });
     screen.querySelector('#btn-shop')!.addEventListener('click', () => this.showShop());
     screen.querySelector('#btn-menu')!.addEventListener('click', () => this.showMenu());
   }
