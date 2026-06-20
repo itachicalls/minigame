@@ -6,8 +6,15 @@ export const MIN_HOLDING_USD = 3;
 
 export const PUMP_FUN_URL = `https://pump.fun/coin/${GAME_TOKEN_MINT}`;
 
-/** Production builds set VITE_SKIP_TOKEN_GATE=true (.env.production / CI). Local: .env.local */
-export const TOKEN_GATE_ENABLED = import.meta.env.VITE_SKIP_TOKEN_GATE !== 'true';
+/**
+ * Holder gate runs in local dev only.
+ * Production (mailrun.xyz) never shows wallet UI.
+ * To test gate on a prod build: VITE_FORCE_TOKEN_GATE=true
+ * To skip gate locally: VITE_SKIP_TOKEN_GATE=true in .env.local
+ */
+export const TOKEN_GATE_ENABLED =
+  import.meta.env.VITE_FORCE_TOKEN_GATE === 'true' ||
+  (import.meta.env.DEV && import.meta.env.VITE_SKIP_TOKEN_GATE !== 'true');
 
 export function shortMint(mint = GAME_TOKEN_MINT): string {
   return `${mint.slice(0, 4)}…${mint.slice(-4)}`;
