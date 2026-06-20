@@ -1,5 +1,4 @@
 import { defineConfig, type Plugin } from 'vite';
-import { verifyWalletHolding } from './lib/tokenGateServer';
 
 function tokenGateApiDevPlugin(): Plugin {
   return {
@@ -11,6 +10,8 @@ function tokenGateApiDevPlugin(): Plugin {
           next();
           return;
         }
+
+        const { verifyWalletHolding } = await import('./lib/tokenGateServer');
 
         if (req.method === 'OPTIONS') {
           res.statusCode = 204;
