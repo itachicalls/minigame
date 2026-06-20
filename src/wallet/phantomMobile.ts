@@ -14,12 +14,54 @@ export interface PhantomMobileSession {
   signed?: boolean;
 }
 
+function dappBaseUrl(): string {
+  const url = new URL(window.location.href);
+  url.search = '';
+  url.hash = '';
+  return url.origin + url.pathname;
+}
+
 function redirectLink(step: 'connect' | 'sign'): string {
   const url = new URL(window.location.href);
   url.search = '';
   url.hash = '';
   url.searchParams.set('phantom', step);
   return url.toString();
+}
+
+/** Open Phantom app without loading phantom.app in Safari (avoids "tap to open" trap). */
+function launchPhantomDeeplink(methodPath: string, params: URLSearchParams): void {
+  const qs = params.toString();
+  const customScheme = `phantom://${methodPath}?${qs}`;
+  const universalLink = `https://phantom.app/ul/${methodPath}?${qs}`;
+
+  let appOpened = false;
+  const onHide = (): void => {
+    if (document.visibilityState === 'hidden') appOpened = true;
+  };
+  document.addEventListener('visibilitychange', onHide);
+
+  const link = document.createElement('a');
+  link.href = customScheme;
+  link.rel = 'noopener noreferrer';
+  link.style.display = 'none';
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+
+  window.setTimeout(() => {
+    document.removeEventListener('visibilitychange', onHide);
+    if (appOpened) return;
+
+    const fallback = document.createElement('a');
+    fallback.href = universalLink;
+    fallback.target = '_blank';
+    fallback.rel = 'noopener noreferrer';
+    fallback.style.display = 'none';
+    document.body.appendChild(fallback);
+    fallback.click();
+    fallback.remove();
+  }, 900);
 }
 
 function loadSession(): PhantomMobileSession | null {
@@ -109,19 +151,13 @@ export function startPhantomConnect(): void {
   });
 
   const params = new URLSearchParams({
-    app_url: window.location.origin,
+    app_url: dappBaseUrl(),
     dapp_encryption_public_key: bs58.encode(keyPair.publicKey),
     redirect_link: redirectLink('connect'),
     cluster: 'mainnet-beta',
   });
 
-  const url = `https://phantom.app/ul/v1/connect?${params.toString()}`;
-
-  // Keep this Safari/Chrome tab open — opens wallet app, then redirects back here.
-  const opened = window.open(url, '_blank', 'noopener,noreferrer');
-  if (!opened) {
-    window.location.href = url;
-  }
+  launchPhantomDeeplink('v1/connect', params);
 }
 
 /** Desktop / in-Phantom-browser only — mobile Safari uses connect-only flow. */
@@ -149,11 +185,7 @@ export function startPhantomSign(): void {
     payload: bs58.encode(encrypted),
   });
 
-  const url = `https://phantom.app/ul/v1/signMessage?${params.toString()}`;
-  const opened = window.open(url, '_blank', 'noopener,noreferrer');
-  if (!opened) {
-    window.location.href = url;
-  }
+  launchPhantomDeeplink('v1/signMessage', params);
 }
 
 export function consumePhantomRejectMessage(): string | null {
@@ -228,5 +260,5 @@ export function mobileWalletHint(): string {
   if (isInsidePhantomBrowser()) {
     return 'Copy the link below and open it in Safari to play in your browser.';
   }
-  return 'Tap Connect — approve in your wallet app, then you return here to play.';
+  return 'Tap Connect Wallet — approve in the Phantom app, then you land back here in Safari.';
 }

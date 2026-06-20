@@ -1,9 +1,11 @@
 import { TOKEN_GATE_ENABLED } from './config';
+import { IS_MOBILE } from '../game/platform';
 import {
   mobileWalletHint,
   usesMobileWalletBridge,
   isMobileWalletSigned,
   getMobileWalletAddress,
+  isInsidePhantomBrowser,
 } from './mobileWallet';
 import {
   consumePhantomRejectMessage,
@@ -82,6 +84,21 @@ export class TokenGate {
 
   constructor() {
     if (!TOKEN_GATE_ENABLED) return;
+
+    if (usesMobileWalletBridge()) {
+      void this.resumeMobileFlow();
+      return;
+    }
+
+    if (IS_MOBILE && isInsidePhantomBrowser()) {
+      this.setSnapshot({
+        status: 'disconnected',
+        message:
+          'You opened Mail Run inside Phantom. Copy the link below and open it in Safari or Chrome.',
+      });
+      return;
+    }
+
     this.provider = getWalletProvider();
     if (this.provider) {
       this.attachWalletListeners();
@@ -127,12 +144,22 @@ export class TokenGate {
     this.signedWallet = null;
     clearCachedVerify();
 
+    if (IS_MOBILE && isInsidePhantomBrowser()) {
+      this.setSnapshot({
+        status: 'error',
+        walletAddress: null,
+        message:
+          'Connect from Safari or Chrome, not inside Phantom. Copy the mailrun.xyz link below.',
+      });
+      return;
+    }
+
     if (usesMobileWalletBridge()) {
       clearMobileWalletSession();
       this.setSnapshot({
         status: 'connecting',
         walletAddress: null,
-        message: 'Approve in your wallet app — you return here to play.',
+        message: 'Approve in the Phantom app — you return to this browser tab.',
       });
       startPhantomConnect();
       return;

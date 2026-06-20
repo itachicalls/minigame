@@ -920,6 +920,10 @@ h1 {
   min-height: 42px;
   font-size: 0.84rem;
 }
+.wallet-browser-banner-prominent {
+  background: rgba(255, 107, 107, 0.14);
+  border-color: rgba(255, 107, 107, 0.45);
+}
 
 .wallet-gate.granted .wallet-gate-desc,
 .wallet-gate.granted .wallet-buy-link {
