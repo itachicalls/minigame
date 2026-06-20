@@ -1,18 +1,7 @@
-export const config = {
-  runtime: 'edge',
-};
-
 const GAME_TOKEN_MINT = 'BzStxA5qec2FurM26CjuFcGQ1en9uKTQd2D1eiVJpump';
 const MIN_HOLDING_USD = 3;
 const WALLET_RE = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
 const MOBULA_PORTFOLIO_URL = 'https://api.mobula.io/api/1/wallet/portfolio';
-
-const cors = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type',
-  'Cache-Control': 'no-store',
-};
 
 function assetMatchesMint(asset, mint) {
   if (asset.asset?.contracts?.includes(mint)) return true;
@@ -32,45 +21,63 @@ async function verifyWithMobula(wallet, apiKey) {
     stale: '60',
   });
 
-  const res = await fetch(`${MOBULA_PORTFOLIO_URL}?${params}`, {
-    headers: { Authorization: apiKey },
-    signal: AbortSignal.timeout(8000),
-  });
-  if (!res.ok) {
-    throw new Error(`Mobula HTTP ${res.status}`);
-  }
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 8000);
 
-  const json = await res.json();
-  const match = json.data?.assets?.find((asset) => assetMatchesMint(asset, GAME_TOKEN_MINT));
+  try {
+    const res = await fetch(`${MOBULA_PORTFOLIO_URL}?${params}`, {
+      headers: { Authorization: apiKey },
+      signal: controller.signal,
+    });
+    if (!res.ok) {
+      throw new Error(`Mobula HTTP ${res.status}`);
+    }
 
-  if (!match) {
+    const json = await res.json();
+    const match = json.data?.assets?.find((asset) => assetMatchesMint(asset, GAME_TOKEN_MINT));
+
+    if (!match) {
+      return {
+        granted: false,
+        wallet,
+        mint: GAME_TOKEN_MINT,
+        tokenSymbol: 'Mailrun',
+        tokenBalance: 0,
+        tokenPriceUsd: null,
+        holdingUsd: 0,
+        minHoldingUsd: MIN_HOLDING_USD,
+        message: `Hold at least $${MIN_HOLDING_USD} of $Mailrun to play.`,
+      };
+    }
+
+    const symbol = match.asset?.symbol?.trim() || 'Mailrun';
+    const priceUsd = Number.isFinite(match.price) && match.price > 0 ? match.price : null;
+    const balance = match.token_balance ?? 0;
+    const holdingUsd =
+      priceUsd != null
+        ? balance * priceUsd
+        : Number.isFinite(match.estimated_balance)
+          ? match.estimated_balance
+          : 0;
+    const granted = holdingUsd >= MIN_HOLDING_USD;
+
+    if (granted) {
+      return {
+        granted: true,
+        wallet,
+        mint: GAME_TOKEN_MINT,
+        tokenSymbol: symbol,
+        tokenBalance: balance,
+        tokenPriceUsd: priceUsd,
+        holdingUsd,
+        minHoldingUsd: MIN_HOLDING_USD,
+        message: `Access granted · ~$${holdingUsd.toFixed(2)} of $${symbol}`,
+      };
+    }
+
+    const needMore = Math.max(0, MIN_HOLDING_USD - holdingUsd);
     return {
       granted: false,
-      wallet,
-      mint: GAME_TOKEN_MINT,
-      tokenSymbol: 'Mailrun',
-      tokenBalance: 0,
-      tokenPriceUsd: null,
-      holdingUsd: 0,
-      minHoldingUsd: MIN_HOLDING_USD,
-      message: `Hold at least $${MIN_HOLDING_USD} of $Mailrun to play.`,
-    };
-  }
-
-  const symbol = match.asset?.symbol?.trim() || 'Mailrun';
-  const priceUsd = Number.isFinite(match.price) && match.price > 0 ? match.price : null;
-  const balance = match.token_balance ?? 0;
-  const holdingUsd =
-    priceUsd != null
-      ? balance * priceUsd
-      : Number.isFinite(match.estimated_balance)
-        ? match.estimated_balance
-        : 0;
-  const granted = holdingUsd >= MIN_HOLDING_USD;
-
-  if (granted) {
-    return {
-      granted: true,
       wallet,
       mint: GAME_TOKEN_MINT,
       tokenSymbol: symbol,
@@ -78,57 +85,53 @@ async function verifyWithMobula(wallet, apiKey) {
       tokenPriceUsd: priceUsd,
       holdingUsd,
       minHoldingUsd: MIN_HOLDING_USD,
-      message: `Access granted · ~$${holdingUsd.toFixed(2)} of $${symbol}`,
+      message:
+        balance > 0
+          ? `Need ~$${needMore.toFixed(2)} more of $${symbol} (~$${MIN_HOLDING_USD} total).`
+          : `Hold at least $${MIN_HOLDING_USD} of $${symbol} to play.`,
     };
+  } finally {
+    clearTimeout(timer);
   }
-
-  const needMore = Math.max(0, MIN_HOLDING_USD - holdingUsd);
-  return {
-    granted: false,
-    wallet,
-    mint: GAME_TOKEN_MINT,
-    tokenSymbol: symbol,
-    tokenBalance: balance,
-    tokenPriceUsd: priceUsd,
-    holdingUsd,
-    minHoldingUsd: MIN_HOLDING_USD,
-    message:
-      balance > 0
-        ? `Need ~$${needMore.toFixed(2)} more of $${symbol} (~$${MIN_HOLDING_USD} total).`
-        : `Hold at least $${MIN_HOLDING_USD} of $${symbol} to play.`,
-  };
 }
 
-export default async function handler(request) {
-  if (request.method === 'OPTIONS') {
-    return new Response(null, { status: 204, headers: cors });
+module.exports = async function handler(req, res) {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Cache-Control', 'no-store');
+
+  if (req.method === 'OPTIONS') {
+    res.status(204).end();
+    return;
   }
 
-  if (request.method !== 'GET') {
-    return Response.json({ error: 'Method not allowed' }, { status: 405, headers: cors });
+  if (req.method !== 'GET') {
+    res.status(405).json({ error: 'Method not allowed' });
+    return;
   }
 
-  const wallet = new URL(request.url).searchParams.get('wallet')?.trim() ?? '';
+  const wallet = typeof req.query.wallet === 'string' ? req.query.wallet.trim() : '';
   if (!wallet) {
-    return Response.json({ error: 'Missing wallet query parameter' }, { status: 400, headers: cors });
+    res.status(400).json({ error: 'Missing wallet query parameter' });
+    return;
   }
   if (!WALLET_RE.test(wallet)) {
-    return Response.json({ error: 'Invalid Solana wallet address' }, { status: 400, headers: cors });
+    res.status(400).json({ error: 'Invalid Solana wallet address' });
+    return;
   }
 
   const apiKey = process.env.MOBULA_API_KEY?.trim();
   if (!apiKey) {
-    return Response.json(
-      { error: 'MOBULA_API_KEY is not configured on the server' },
-      { status: 503, headers: cors }
-    );
+    res.status(503).json({ error: 'MOBULA_API_KEY is not configured on the server' });
+    return;
   }
 
   try {
     const result = await verifyWithMobula(wallet, apiKey);
-    return Response.json(result, { status: 200, headers: cors });
+    res.status(200).json(result);
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Verification failed';
-    return Response.json({ error: message }, { status: 500, headers: cors });
+    res.status(500).json({ error: message });
   }
-}
+};
