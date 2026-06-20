@@ -13,7 +13,11 @@ export function shortMint(mint = GAME_TOKEN_MINT): string {
   return `${mint.slice(0, 4)}…${mint.slice(-4)}`;
 }
 
-/** Server verify endpoint — set VITE_VERIFY_API_URL at build time (see GitHub VERIFY_API_URL var). */
+/** Mobula verify API on Vercel — never hit public RPC from the browser. */
+export const DEFAULT_VERIFY_API_URL = 'https://lastmile-ten.vercel.app/api/verify-holding';
+
+/** Server verify endpoint — override with VITE_VERIFY_API_URL at build time. */
 export const VERIFY_API_URLS: string[] = [
   import.meta.env.VITE_VERIFY_API_URL?.trim(),
+  DEFAULT_VERIFY_API_URL,
 ].filter((url): url is string => Boolean(url));
