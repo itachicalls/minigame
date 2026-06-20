@@ -5,13 +5,12 @@ import { fetchWithTimeout, withTimeout } from './fetchUtils';
 const RPC_URLS = [
   'https://solana-rpc.publicnode.com',
   'https://api.mainnet-beta.solana.com',
-  'https://rpc.ankr.com/solana',
 ];
 
-const RPC_TIMEOUT_MS = 6500;
-const QUOTE_TIMEOUT_MS = 6500;
-const VERIFY_TIMEOUT_MS = 16000;
-const QUOTE_CACHE_MS = 45_000;
+const RPC_TIMEOUT_MS = 12000;
+const QUOTE_TIMEOUT_MS = 10000;
+const VERIFY_TIMEOUT_MS = 28000;
+const QUOTE_CACHE_MS = 60_000;
 
 let quoteCache: {
   mint: string;
@@ -46,19 +45,17 @@ async function rpcCallOnce<T>(endpoint: string, method: string, params: unknown[
 }
 
 async function rpcCall<T>(method: string, params: unknown[]): Promise<T> {
-  const attempts = RPC_URLS.map((endpoint) => rpcCallOnce<T>(endpoint, method, params));
-  const results = await Promise.allSettled(attempts);
+  let lastError: Error | null = null;
 
-  for (const result of results) {
-    if (result.status === 'fulfilled') return result.value;
+  for (const endpoint of RPC_URLS) {
+    try {
+      return await rpcCallOnce<T>(endpoint, method, params);
+    } catch (err) {
+      lastError = err instanceof Error ? err : new Error(String(err));
+    }
   }
 
-  const firstError = results.find((r) => r.status === 'rejected') as
-    | PromiseRejectedResult
-    | undefined;
-  throw firstError?.reason instanceof Error
-    ? firstError.reason
-    : new Error('Could not reach Solana network. Tap Recheck.');
+  throw lastError ?? new Error('Could not reach Solana. Tap Recheck.');
 }
 
 interface ParsedTokenAccount {
@@ -91,7 +88,12 @@ interface DexPair {
   baseToken?: { symbol?: string };
 }
 
-async function fetchTokenQuoteDex(mint: string): Promise<{ priceUsd: number; symbol: string } | null> {
+async function fetchTokenQuote(mint: string): Promise<{ priceUsd: number; symbol: string } | null> {
+  const cached = quoteCache;
+  if (cached && cached.mint === mint && Date.now() - cached.at < QUOTE_CACHE_MS) {
+    return cached.quote;
+  }
+
   const res = await fetchWithTimeout(`https://api.dexscreener.com/latest/dex/tokens/${mint}`, {
     timeoutMs: QUOTE_TIMEOUT_MS,
   });
@@ -107,42 +109,11 @@ async function fetchTokenQuoteDex(mint: string): Promise<{ priceUsd: number; sym
   const priceUsd = Number.parseFloat(best.priceUsd);
   if (!Number.isFinite(priceUsd) || priceUsd <= 0) return null;
 
-  return {
+  const quote = {
     priceUsd,
     symbol: best.baseToken?.symbol?.trim() || 'GAME',
   };
-}
-
-async function fetchTokenQuoteJupiter(mint: string): Promise<{ priceUsd: number; symbol: string } | null> {
-  const res = await fetchWithTimeout(`https://api.jup.ag/price/v2?ids=${mint}`, {
-    timeoutMs: QUOTE_TIMEOUT_MS,
-  });
-  if (!res.ok) return null;
-
-  const data = (await res.json()) as {
-    data?: Record<string, { price?: number | string; symbol?: string } | undefined>;
-  };
-  const entry = data.data?.[mint];
-  if (!entry?.price) return null;
-
-  const priceUsd = typeof entry.price === 'string' ? Number.parseFloat(entry.price) : entry.price;
-  if (!Number.isFinite(priceUsd) || priceUsd <= 0) return null;
-
-  return {
-    priceUsd,
-    symbol: entry.symbol?.trim() || 'GAME',
-  };
-}
-
-async function fetchTokenQuote(mint: string): Promise<{ priceUsd: number; symbol: string } | null> {
-  const cached = quoteCache;
-  if (cached && cached.mint === mint && Date.now() - cached.at < QUOTE_CACHE_MS) {
-    return cached.quote;
-  }
-
-  const quote =
-    (await fetchTokenQuoteDex(mint)) ?? (await fetchTokenQuoteJupiter(mint));
-  if (quote) quoteCache = { mint, quote, at: Date.now() };
+  quoteCache = { mint, quote, at: Date.now() };
   return quote;
 }
 
@@ -200,26 +171,22 @@ function buildResult(
 }
 
 async function verifyHoldingClientInner(wallet: string): Promise<VerifyHoldingResult> {
-  const [quoteResult, balanceResult] = await Promise.allSettled([
-    fetchTokenQuote(GAME_TOKEN_MINT),
-    getSplTokenBalance(wallet, GAME_TOKEN_MINT),
-  ]);
+  let balance = 0;
+  let balanceError: Error | null = null;
 
-  const quote = quoteResult.status === 'fulfilled' ? quoteResult.value : null;
-  const balance = balanceResult.status === 'fulfilled' ? balanceResult.value : 0;
-
-  if (balanceResult.status === 'rejected' && quoteResult.status === 'rejected') {
-    throw balanceResult.reason instanceof Error
-      ? balanceResult.reason
-      : new Error('Balance check failed. Tap Recheck.');
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      balance = await getSplTokenBalance(wallet, GAME_TOKEN_MINT);
+      balanceError = null;
+      break;
+    } catch (err) {
+      balanceError = err instanceof Error ? err : new Error(String(err));
+    }
   }
 
-  if (balanceResult.status === 'rejected') {
-    throw balanceResult.reason instanceof Error
-      ? balanceResult.reason
-      : new Error('Could not read wallet balance. Tap Recheck.');
-  }
+  if (balanceError) throw balanceError;
 
+  const quote = await fetchTokenQuote(GAME_TOKEN_MINT);
   return buildResult(wallet, quote, balance);
 }
 
