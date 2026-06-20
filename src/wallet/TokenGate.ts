@@ -48,6 +48,8 @@ const INITIAL_SNAPSHOT: GateSnapshot = {
     : 'Token gate bypassed for local development.',
 };
 
+const CHECKING_WATCHDOG_MS = 14000;
+
 export class TokenGate {
   private snapshot: GateSnapshot = { ...INITIAL_SNAPSHOT };
   private listeners = new Set<GateListener>();
@@ -55,6 +57,7 @@ export class TokenGate {
   private signedWallet: string | null = null;
   private verifySeq = 0;
   private verifyPromise: Promise<boolean> | null = null;
+  private checkingWatchdog: ReturnType<typeof setTimeout> | null = null;
   private boundOnWalletChange = () => {
     this.signedWallet = null;
     this.verifySeq += 1;
@@ -197,9 +200,11 @@ export class TokenGate {
       walletAddress: address,
       message: 'Checking token balance…',
     });
+    this.armCheckingWatchdog(seq, address);
 
     try {
       const result = await verifyHoldingApi(address);
+      this.clearCheckingWatchdog();
       if (seq !== this.verifySeq) return this.snapshot.status === 'granted';
 
       if (!result.tokenPriceUsd) {
@@ -238,6 +243,7 @@ export class TokenGate {
       });
       return false;
     } catch (err) {
+      this.clearCheckingWatchdog();
       if (seq !== this.verifySeq) return this.snapshot.status === 'granted';
       this.setSnapshot({
         status: 'error',
@@ -251,6 +257,7 @@ export class TokenGate {
   async disconnect(): Promise<void> {
     if (!TOKEN_GATE_ENABLED) return;
     this.verifySeq += 1;
+    this.clearCheckingWatchdog();
     const provider = this.provider ?? getWalletProvider();
     this.signedWallet = null;
     try {
@@ -276,6 +283,27 @@ export class TokenGate {
     provider.removeListener('accountChanged', this.boundOnWalletChange);
     provider.on('disconnect', this.boundOnWalletChange);
     provider.on('accountChanged', this.boundOnWalletChange);
+  }
+
+  private armCheckingWatchdog(seq: number, address: string): void {
+    this.clearCheckingWatchdog();
+    this.checkingWatchdog = setTimeout(() => {
+      if (seq !== this.verifySeq || this.snapshot.status !== 'checking') return;
+      this.verifySeq += 1;
+      this.verifyPromise = null;
+      this.setSnapshot({
+        status: 'error',
+        walletAddress: address,
+        message: 'Balance check timed out. Tap Recheck.',
+      });
+    }, CHECKING_WATCHDOG_MS);
+  }
+
+  private clearCheckingWatchdog(): void {
+    if (this.checkingWatchdog) {
+      clearTimeout(this.checkingWatchdog);
+      this.checkingWatchdog = null;
+    }
   }
 
   private setSnapshot(patch: Partial<GateSnapshot>): void {
