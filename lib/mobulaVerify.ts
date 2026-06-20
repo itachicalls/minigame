@@ -1,9 +1,10 @@
 import {
-  buildResult,
+  assertValidWallet,
   GAME_TOKEN_MINT,
   MIN_HOLDING_USD,
+  buildResult,
   type VerifyHoldingResult,
-} from './verifyCore';
+} from './gateShared';
 
 const MOBULA_PORTFOLIO_URL = 'https://api.mobula.io/api/1/wallet/portfolio';
 const MOBULA_TIMEOUT_MS = 8000;
@@ -39,6 +40,8 @@ export async function verifyHoldingMobula(
   mint = GAME_TOKEN_MINT,
   minUsd = MIN_HOLDING_USD
 ): Promise<VerifyHoldingResult> {
+  assertValidWallet(wallet);
+
   const params = new URLSearchParams({
     wallet,
     blockchains: 'solana',

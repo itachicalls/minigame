@@ -1,9 +1,9 @@
 import {
-  verifyHolding,
   GAME_TOKEN_MINT,
   MIN_HOLDING_USD,
+  assertValidWallet,
   type VerifyHoldingResult,
-} from './verifyCore';
+} from './gateShared';
 import { verifyHoldingMobula } from './mobulaVerify';
 
 export { GAME_TOKEN_MINT, MIN_HOLDING_USD, type VerifyHoldingResult };
@@ -22,6 +22,8 @@ export async function verifyWalletHolding(
   mint = GAME_TOKEN_MINT,
   minUsd = MIN_HOLDING_USD
 ): Promise<VerifyHoldingResult> {
+  assertValidWallet(wallet);
+
   const mobulaKey = process.env.MOBULA_API_KEY?.trim();
   if (mobulaKey) {
     try {
@@ -31,5 +33,6 @@ export async function verifyWalletHolding(
     }
   }
 
+  const { verifyHolding } = await import('./verifyCore');
   return verifyHolding(wallet, serverRpcUrls(), mint, minUsd);
 }

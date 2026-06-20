@@ -1,4 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
+import { WALLET_RE } from '../lib/gateShared';
 import { verifyWalletHolding } from '../lib/tokenGateServer';
 
 export default async function handler(req: VercelRequest, res: VercelResponse): Promise<void> {
@@ -20,6 +21,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse): 
   const wallet = typeof req.query.wallet === 'string' ? req.query.wallet.trim() : '';
   if (!wallet) {
     res.status(400).json({ error: 'Missing wallet query parameter' });
+    return;
+  }
+  if (!WALLET_RE.test(wallet)) {
+    res.status(400).json({ error: 'Invalid Solana wallet address' });
     return;
   }
 
