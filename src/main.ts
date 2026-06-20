@@ -13,7 +13,7 @@ initViewportLock();
 
 function blockZoom(e: Event): void {
   const t = e.target as HTMLElement;
-  if (t.closest('.shop-scroll, .levels-screen, .scroll-touch')) return;
+  if (t.closest('.shop-scroll, .levels-screen, .scroll-touch, .menu-scroll')) return;
   e.preventDefault();
 }
 

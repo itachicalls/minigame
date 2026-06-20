@@ -121,77 +121,85 @@ export class UIManager {
 
     const screen = this.wrapScreen(`
       <div class="screen menu-screen">
-        <div class="menu-hero-card">
-          <div class="menu-hero-glow" aria-hidden="true"></div>
-          <div class="logo-wrap">
-            <div class="logo-emblem" aria-hidden="true">
-              <span class="logo-emblem-ring"></span>
-              <span class="logo-emblem-icon">📬</span>
-            </div>
-            <h1 class="game-title">
-              <span class="title-mail">MAIL</span>
-              <span class="title-run">RUN</span>
-            </h1>
-            <p class="game-tagline">Steer · Shoot · Deliver</p>
-          </div>
-          <div class="character-select">
-            <p class="character-select-label">Pick your courier</p>
-            <div class="character-cards">${characterCards}</div>
-          </div>
-          <div class="menu-stats">
-            <div class="stat-pill stat-pill-glow"><span>🪙</span> ${s.coins}</div>
-            <div class="stat-pill"><span>📦</span> ${s.totalDeliveries} drops</div>
-          </div>
-          ${TOKEN_GATE_ENABLED ? `
-          <div class="wallet-gate" id="wallet-gate">
-            <div class="wallet-gate-accent" aria-hidden="true"></div>
-            <div class="wallet-gate-head">
-              <div class="wallet-gate-brand">
-                <span class="wallet-gate-icon" aria-hidden="true">◎</span>
-                <span class="wallet-gate-badge">Holder Gate</span>
+        <div class="menu-layout">
+          <div class="menu-scroll scroll-touch">
+            <div class="menu-hero-card">
+              <div class="menu-hero-glow" aria-hidden="true"></div>
+              <div class="logo-wrap">
+                <div class="logo-emblem" aria-hidden="true">
+                  <span class="logo-emblem-ring"></span>
+                  <span class="logo-emblem-icon">📬</span>
+                </div>
+                <h1 class="game-title">
+                  <span class="title-mail">MAIL</span>
+                  <span class="title-run">RUN</span>
+                </h1>
+                <p class="game-tagline">Steer · Shoot · Deliver</p>
               </div>
-              <code class="wallet-gate-mint" title="${GAME_TOKEN_MINT}">${shortMint()}</code>
-            </div>
-            <p class="wallet-gate-desc">${
-              IS_MOBILE
-                ? 'On mobile, open this site in the <strong>Phantom app</strong>, then sign to verify holdings.'
-                : 'Connect <strong>Phantom</strong>, sign, and hold <strong>$' +
-                  MIN_HOLDING_USD +
-                  '+</strong> of the token.'
-            }</p>
-            <div class="wallet-gate-body">
-              <div class="wallet-status-chip" id="wallet-status-chip">
-                <span class="wallet-status-dot" id="wallet-status-dot" aria-hidden="true"></span>
-                <span id="wallet-status-label">Ready to connect</span>
+              <div class="character-select">
+                <p class="character-select-label">Pick your courier</p>
+                <div class="character-cards">${characterCards}</div>
               </div>
-              <div class="wallet-gate-status" id="wallet-gate-status">
-                <div class="wallet-message">${
+              <div class="menu-stats">
+                <div class="stat-pill stat-pill-glow"><span>🪙</span> ${s.coins}</div>
+                <div class="stat-pill"><span>📦</span> ${s.totalDeliveries} drops</div>
+              </div>
+              ${TOKEN_GATE_ENABLED ? `
+              <div class="wallet-gate" id="wallet-gate">
+                <div class="wallet-gate-accent" aria-hidden="true"></div>
+                <div class="wallet-gate-head">
+                  <div class="wallet-gate-brand">
+                    <span class="wallet-gate-icon" aria-hidden="true">◎</span>
+                    <span class="wallet-gate-badge">Holder Gate</span>
+                  </div>
+                  <code class="wallet-gate-mint" title="${GAME_TOKEN_MINT}">${shortMint()}</code>
+                </div>
+                <p class="wallet-gate-desc">${
                   IS_MOBILE
-                    ? 'Tap Open in Phantom if you are in Safari/Chrome. Already in Phantom? Tap Connect Phantom.'
-                    : 'Tap Connect Phantom — approve connection, then approve the signature.'
-                }</div>
-              </div>
-              <div class="wallet-gate-actions">
-                <button type="button" class="wallet-btn wallet-btn-connect" id="btn-wallet-connect">${
-                  IS_MOBILE && needsPhantomMobileApp() ? 'Open in Phantom' : 'Connect Phantom'
-                }</button>
-                <div class="wallet-connected-pill hidden" id="wallet-connected-pill" aria-live="polite">
-                  <span class="wallet-connected-check" aria-hidden="true">✓</span>
-                  Wallet Connected
+                    ? 'Open in <strong>Phantom</strong> and sign to verify <strong>$' +
+                      MIN_HOLDING_USD +
+                      '+</strong> holdings.'
+                    : 'Connect <strong>Phantom</strong>, sign, and hold <strong>$' +
+                      MIN_HOLDING_USD +
+                      '+</strong> of the token.'
+                }</p>
+                <div class="wallet-gate-body">
+                  <div class="wallet-status-chip" id="wallet-status-chip">
+                    <span class="wallet-status-dot" id="wallet-status-dot" aria-hidden="true"></span>
+                    <span id="wallet-status-label">Ready to connect</span>
+                  </div>
+                  <div class="wallet-gate-status" id="wallet-gate-status">
+                    <div class="wallet-message">${
+                      IS_MOBILE
+                        ? 'In Safari? Tap Open in Phantom. In Phantom? Tap Connect.'
+                        : 'Tap Connect Phantom — approve connection, then approve the signature.'
+                    }</div>
+                  </div>
+                  <div class="wallet-gate-actions">
+                    <button type="button" class="wallet-btn wallet-btn-connect" id="btn-wallet-connect">${
+                      IS_MOBILE && needsPhantomMobileApp() ? 'Open in Phantom' : 'Connect Phantom'
+                    }</button>
+                    <div class="wallet-connected-pill hidden" id="wallet-connected-pill" aria-live="polite">
+                      <span class="wallet-connected-check" aria-hidden="true">✓</span>
+                      Wallet Connected
+                    </div>
+                    <div class="wallet-action-row hidden" id="wallet-action-row">
+                      <button type="button" class="wallet-btn wallet-btn-ghost" id="btn-wallet-recheck">Recheck</button>
+                      <button type="button" class="wallet-btn wallet-btn-ghost wallet-btn-disconnect" id="btn-wallet-disconnect">Disconnect</button>
+                    </div>
+                  </div>
                 </div>
-                <div class="wallet-action-row hidden" id="wallet-action-row">
-                  <button type="button" class="wallet-btn wallet-btn-ghost" id="btn-wallet-recheck">Recheck</button>
-                  <button type="button" class="wallet-btn wallet-btn-ghost wallet-btn-disconnect" id="btn-wallet-disconnect">Disconnect</button>
-                </div>
-              </div>
+                <a class="wallet-buy-link" href="${PUMP_FUN_URL}" target="_blank" rel="noopener noreferrer">Buy on Pump.fun ↗</a>
+              </div>` : ''}
             </div>
-            <a class="wallet-buy-link" href="${PUMP_FUN_URL}" target="_blank" rel="noopener noreferrer">Buy on Pump.fun ↗</a>
-          </div>` : ''}
-          <div class="menu-buttons">
-            <button class="btn btn-primary btn-glow btn-hero" id="btn-play" ${TOKEN_GATE_ENABLED ? 'disabled' : ''}>▶ Start Run</button>
-            <button class="btn btn-secondary btn-hero-secondary" id="btn-shop">🛒 Shop & Loadout</button>
           </div>
-          <button class="btn btn-ghost btn-small" id="btn-reset">Reset Save</button>
+          <footer class="menu-action-bar">
+            <div class="menu-buttons">
+              <button class="btn btn-primary btn-glow btn-hero" id="btn-play" ${TOKEN_GATE_ENABLED ? 'disabled' : ''}>▶ Start Run</button>
+              <button class="btn btn-secondary btn-hero-secondary" id="btn-shop">🛒 Shop & Loadout</button>
+            </div>
+            <button class="btn btn-ghost btn-small menu-reset-btn" id="btn-reset" type="button">Reset Save</button>
+          </footer>
         </div>
       </div>
     `);
