@@ -12,10 +12,11 @@ export class ArcadePostPass extends Pass {
     this.material = new THREE.ShaderMaterial({
       uniforms: {
         tDiffuse: { value: null },
-        vignette: { value: IS_MOBILE ? 0.12 : 0.28 },
+        vignette: { value: IS_MOBILE ? 0.1 : 0.2 },
         aberration: { value: IS_MOBILE ? 0.0008 : 0.0016 },
-        saturation: { value: IS_MOBILE ? 1.1 : 1.14 },
-        pathLift: { value: IS_MOBILE ? 0.14 : 0.1 },
+        saturation: { value: IS_MOBILE ? 1.16 : 1.22 },
+        warmTint: { value: IS_MOBILE ? 0.22 : 0.28 },
+        purpleShadow: { value: IS_MOBILE ? 0.12 : 0.18 },
         pulse: { value: 0 },
       },
       vertexShader: `
@@ -31,7 +32,8 @@ export class ArcadePostPass extends Pass {
         uniform float aberration;
         uniform float saturation;
         uniform float pulse;
-        uniform float pathLift;
+        uniform float warmTint;
+        uniform float purpleShadow;
         varying vec2 vUv;
         void main() {
           vec2 uv = vUv;
@@ -44,9 +46,8 @@ export class ArcadePostPass extends Pass {
           float luma = dot(col, vec3(0.299, 0.587, 0.114));
           float sat = saturation + pulse * 0.18;
           col = mix(vec3(luma), col, sat);
-          float path = smoothstep(0.42, 0.0, abs(uv.x - 0.5)) * smoothstep(1.0, 0.48, uv.y);
-          col *= 1.0 + path * pathLift;
-          col = mix(col, col * vec3(1.02, 1.05, 1.08), path * pathLift * 0.65);
+          col = mix(col, col * vec3(1.08, 1.02, 0.94), warmTint);
+          col = mix(col, col * vec3(0.92, 0.88, 1.06), purpleShadow * (1.0 - luma));
           float vig = 1.0 - dot(dir, dir) * vignette * 2.4;
           col *= clamp(vig, 0.0, 1.0);
           col *= 1.0 + pulse * 0.14;
@@ -59,6 +60,16 @@ export class ArcadePostPass extends Pass {
 
   setPulse(v: number): void {
     this.material.uniforms.pulse.value = v;
+  }
+
+  /** Per-district cinematic grade. Values are gently clamped on mobile for perf/readability. */
+  setGrade(grade: { warm: number; purple: number; saturation: number; vignette: number }): void {
+    const u = this.material.uniforms;
+    const m = IS_MOBILE ? 0.7 : 1;
+    u.warmTint.value = grade.warm * m;
+    u.purpleShadow.value = grade.purple * m;
+    u.saturation.value = IS_MOBILE ? 1 + (grade.saturation - 1) * 0.7 : grade.saturation;
+    u.vignette.value = IS_MOBILE ? grade.vignette * 0.55 : grade.vignette;
   }
 
   render(

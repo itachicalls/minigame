@@ -20,9 +20,9 @@ export class RenderPipeline {
 
     this.bloomPass = new UnrealBloomPass(
       new THREE.Vector2(1, 1),
-      IS_MOBILE ? 0.34 : 0.38,
+      IS_MOBILE ? 0.28 : 0.32,
       IS_MOBILE ? 0.32 : 0.36,
-      IS_MOBILE ? 0.72 : 0.68
+      IS_MOBILE ? 0.92 : 0.88
     );
     this.composer.addPass(this.bloomPass);
 
@@ -44,6 +44,10 @@ export class RenderPipeline {
 
   setGradePulse(pulse: number): void {
     this.gradePass.setPulse(pulse);
+  }
+
+  setGrade(grade: { warm: number; purple: number; saturation: number; vignette: number }): void {
+    this.gradePass.setGrade(grade);
   }
 
   render(): void {

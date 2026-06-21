@@ -23,8 +23,8 @@ const TIER_POOL: Record<ChibiTier, ChibiSpecies[]> = {
   boss: ['bull', 'alien', 'frog'],
 };
 
-function chibiSkin(color: string, emissive: string, intensity = 0.08): THREE.MeshStandardMaterial {
-  return mat(color, { emissive, emissiveIntensity: intensity, roughness: 0.92, metalness: 0 });
+function chibiSkin(color: string): THREE.MeshStandardMaterial {
+  return mat(color, { emissive: '#000000', emissiveIntensity: 0, roughness: 0.92, metalness: 0 });
 }
 
 function addStubArm(parent: THREE.Object3D, side: number, sc: number, skin: THREE.Material, shoulderY: number, paw?: THREE.Material): THREE.Group {
@@ -59,7 +59,7 @@ function addTanJaw(head: THREE.Group, sc: number, mul: number): void {
 }
 
 function addAlmondEyes(head: THREE.Group, sc: number, glow: string): void {
-  const eyeMat = mat('#0A0A0A', { emissive: glow, emissiveIntensity: 0.35, roughness: 1 });
+  const eyeMat = mat('#0A0A0A', { emissive: glow, emissiveIntensity: 0.12, roughness: 1 });
   for (const sx of [-1, 1]) {
     const eye = addMesh(head, new THREE.BoxGeometry(0.13 * sc, 0.17 * sc, 0.035 * sc), eyeMat, sx * 0.11 * sc, 0.07 * sc, 0.24 * sc);
     eye.rotation.z = sx * 0.12;
@@ -118,7 +118,7 @@ function decorateSpeciesHead(head: THREE.Group, sc: number, species: ChibiSpecie
       for (const sx of [-1, 1]) {
         const ear = addMesh(head, new THREE.BoxGeometry(0.1 * sc, 0.12 * sc, 0.06 * sc), mat('#78909C'), sx * 0.18 * sc, 0.42 * sc, 0);
         ear.rotation.z = sx * 0.25;
-        addMesh(head, new THREE.BoxGeometry(0.09 * sc, 0.11 * sc, 0.03 * sc), mat('#FFEB3B', { emissive: '#FBC02D', emissiveIntensity: 0.25 }), sx * 0.11 * sc, 0.08 * sc, 0.25 * sc);
+        addMesh(head, new THREE.BoxGeometry(0.09 * sc, 0.11 * sc, 0.03 * sc), mat('#FFEB3B', { emissive: '#FBC02D', emissiveIntensity: 0.1 }), sx * 0.11 * sc, 0.08 * sc, 0.25 * sc);
         addMesh(head, new THREE.BoxGeometry(0.02 * sc, 0.07 * sc, 0.02 * sc), mat('#111'), sx * 0.11 * sc, 0.08 * sc, 0.27 * sc);
       }
       return addMouthSlit(head, sc, 0.06);
@@ -165,12 +165,12 @@ function speciesColors(species: ChibiSpecies): { skin: string; emissive: string;
 
 function addTierExtras(g: THREE.Group, sc: number, tier: ChibiTier, species: ChibiSpecies, head: THREE.Group): void {
   if (tier === 'grunt' && species === 'alien') {
-    addMesh(g, new THREE.BoxGeometry(0.18 * sc, 0.2 * sc, 0.14 * sc), mat('#FF8F00', { emissive: '#FF6F00', emissiveIntensity: 0.25 }), -0.32 * sc, 0.48 * sc, -0.06 * sc);
+    addMesh(g, new THREE.BoxGeometry(0.18 * sc, 0.2 * sc, 0.14 * sc), mat('#FF8F00', { emissive: '#FF6F00', emissiveIntensity: 0.1 }), -0.32 * sc, 0.48 * sc, -0.06 * sc);
   }
   if (tier === 'raider') {
-    addMesh(g, new THREE.BoxGeometry(0.05 * sc, 0.05 * sc, 0.42 * sc), mat('#00E5FF', { emissive: '#00B0FF', emissiveIntensity: 0.9 }), 0.36 * sc, 0.38 * sc, 0.12 * sc);
+    addMesh(g, new THREE.BoxGeometry(0.05 * sc, 0.05 * sc, 0.42 * sc), mat('#00E5FF', { emissive: '#00B0FF', emissiveIntensity: 0.22 }), 0.36 * sc, 0.38 * sc, 0.12 * sc);
     if (species === 'bull') {
-      addMesh(head, new THREE.BoxGeometry(0.44 * sc, 0.1 * sc, 0.06 * sc), mat('#E53935', { emissive: '#B71C1C', emissiveIntensity: 0.35 }), 0, 0.22 * sc, 0.24 * sc);
+      addMesh(head, new THREE.BoxGeometry(0.44 * sc, 0.1 * sc, 0.06 * sc), mat('#E53935', { emissive: '#B71C1C', emissiveIntensity: 0.12 }), 0, 0.22 * sc, 0.24 * sc);
     }
   }
   if (tier === 'boss') {
@@ -178,7 +178,7 @@ function addTierExtras(g: THREE.Group, sc: number, tier: ChibiTier, species: Chi
       addMesh(
         head,
         new THREE.BoxGeometry(0.08 * sc, 0.14 * sc, 0.08 * sc),
-        mat('#FFD54F', { emissive: '#FFA000', emissiveIntensity: 0.5, metalness: 0.3 }),
+        mat('#FFD54F', { emissive: '#FFA000', emissiveIntensity: 0.18, metalness: 0.3 }),
         sx * 0.12 * sc,
         0.48 * sc,
         0
@@ -198,7 +198,7 @@ function addTierExtras(g: THREE.Group, sc: number, tier: ChibiTier, species: Chi
 export function buildChibiSpecies(species: ChibiSpecies, sc: number, tier: ChibiTier = 'grunt'): AlienRig {
   const g = new THREE.Group() as AlienRig;
   const colors = speciesColors(species);
-  const skin = chibiSkin(colors.skin, colors.emissive, tier === 'boss' ? 0.16 : 0.1);
+  const skin = chibiSkin(colors.skin);
   const shoe = mat(colors.shoe, { roughness: 0.9 });
   const paw = colors.paw ? mat(colors.paw, { roughness: 0.92 }) : skin;
 

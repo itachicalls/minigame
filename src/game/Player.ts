@@ -232,11 +232,13 @@ export class Player {
   private updateNightGear(moving: boolean): void {
     const fx = this.nightLevel;
 
-    this.playerLight.intensity = fx * (IS_MOBILE ? 3.2 : 4.4);
-    this.playerLight.color.set(fx > 0.5 ? '#E1F5FE' : '#FFF8E1');
+    // Always-on warm key so the character reads with depth in daylight, ramping to a bright lantern at night.
+    const keyBase = IS_MOBILE ? 0.85 : 1.1;
+    this.playerLight.intensity = keyBase + fx * (IS_MOBILE ? 3.2 : 4.4);
+    this.playerLight.color.set(fx > 0.5 ? '#E1F5FE' : '#FFE7C2');
 
-    this.headLight.intensity = fx * (IS_MOBILE ? 2.4 : 3.6);
-    this.headLight.color.set('#B3E5FC');
+    this.headLight.intensity = (IS_MOBILE ? 0.3 : 0.5) + fx * (IS_MOBILE ? 2.4 : 3.6);
+    this.headLight.color.set('#BBDEFB');
 
     const fl = this.footLight.material as THREE.MeshBasicMaterial;
     fl.opacity = fx * 0.22;
@@ -258,12 +260,16 @@ export class Player {
       if (c === this.mailGunMuzzle || c === this.visorMesh) return;
       const baseE = c.userData.baseEmissiveIntensity as number | undefined;
       if (baseE !== undefined) {
-        c.material.emissiveIntensity = baseE + fx * 0.35;
+        c.material.emissiveIntensity = baseE + fx * 0.12;
         return;
       }
-      if (fx > 0.08 && !c.material.transparent) {
-        c.material.emissive.set('#FFF3E0');
-        c.material.emissiveIntensity = fx * 0.18;
+      // No blanket white emissive — keeps characters from glowing like enemies.
+      if (fx > 0.65 && !c.material.transparent) {
+        c.material.emissive.set('#1a2530');
+        c.material.emissiveIntensity = (fx - 0.65) * 0.04;
+      } else {
+        c.material.emissive.set('#000000');
+        c.material.emissiveIntensity = 0;
       }
     });
   }

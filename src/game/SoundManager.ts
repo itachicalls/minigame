@@ -2,7 +2,6 @@ import { IS_MOBILE } from './platform';
 
 type MusicTheme = {
   root: number;
-  /** Semitone offsets from root (minor pentatonic-ish per district) */
   scale: number[];
   melody: number[];
   bass: number[];
@@ -43,7 +42,40 @@ const THEMES: MusicTheme[] = [
     lead: 'sawtooth',
     bpm: 124,
   },
+  {
+    root: 174,
+    scale: [0, 3, 6, 8, 11],
+    melody: [0, 3, 6, 3, 0, 6, 8, 6, 3, 0, 6, 3, 0, 8, 6, 3],
+    bass: [0, 0, 6, 6, 3, 3, 6, 0],
+    lead: 'square',
+    bpm: 118,
+  },
+  {
+    root: 165,
+    scale: [0, 2, 4, 7, 11],
+    melody: [4, 7, 11, 7, 4, 2, 0, 2, 4, 7, 4, 2, 0, 7, 4, 0],
+    bass: [0, 4, 7, 4, 0, 7, 4, 0],
+    lead: 'triangle',
+    bpm: 130,
+  },
+  {
+    root: 147,
+    scale: [0, 1, 4, 6, 10],
+    melody: [0, 4, 6, 4, 1, 0, 4, 10, 6, 4, 1, 0, 4, 6, 10, 6],
+    bass: [0, 0, 4, 4, 1, 1, 4, 0],
+    lead: 'sawtooth',
+    bpm: 122,
+  },
 ];
+
+const MENU_THEME: MusicTheme = {
+  root: 294,
+  scale: [0, 2, 4, 7, 9],
+  melody: [0, 4, 7, 4, 2, 0, 2, 4, 0, 7, 4, 2, 0, 4, 2, 0],
+  bass: [0, 0, 4, 4, 0, 0, 7, 4],
+  lead: 'triangle',
+  bpm: 108,
+};
 
 /** Procedural arcade SFX + sequenced chiptune-style music — no asset files. */
 export class SoundManager {
@@ -51,41 +83,70 @@ export class SoundManager {
   private masterGain: GainNode | null = null;
   private sfxGain: GainNode | null = null;
   private musicGain: GainNode | null = null;
-  private master = IS_MOBILE ? 0.38 : 0.44;
-  private musicVol = IS_MOBILE ? 0.11 : 0.13;
+  private master = IS_MOBILE ? 0.42 : 0.48;
+  private musicVol = IS_MOBILE ? 0.15 : 0.18;
   private districtId = 1;
   private night = 0;
   private combatLayer = 0;
-  private unlocked = false;
   private musicPlaying = false;
   private musicTimer: ReturnType<typeof setTimeout> | null = null;
   private step = 0;
   private nextNoteTime = 0;
   private themeIdx = 0;
   private bossMode = false;
+  private menuMode = true;
+  private lastTelegraph = 0;
+  private resumePromise: Promise<void> | null = null;
+
+  /** Call on first user gesture (click / tap) so the browser allows audio. */
+  async unlock(): Promise<void> {
+    this.initContext();
+    await this.resumeContext();
+    if (this.menuMode && !this.musicPlaying) this.startMenuMusic();
+  }
+
+  private initContext(): AudioContext | null {
+    if (this.ctx && this.ctx.state !== 'closed') return this.ctx;
+    try {
+      this.ctx = new AudioContext();
+      this.masterGain = this.ctx.createGain();
+      this.masterGain.gain.value = this.master;
+      this.masterGain.connect(this.ctx.destination);
+
+      this.sfxGain = this.ctx.createGain();
+      this.sfxGain.gain.value = 1;
+      this.sfxGain.connect(this.masterGain);
+
+      this.musicGain = this.ctx.createGain();
+      this.musicGain.gain.value = this.musicVol;
+      this.musicGain.connect(this.masterGain);
+      return this.ctx;
+    } catch {
+      this.ctx = null;
+      this.masterGain = null;
+      this.sfxGain = null;
+      this.musicGain = null;
+      return null;
+    }
+  }
+
+  private async resumeContext(): Promise<void> {
+    const ctx = this.initContext();
+    if (!ctx || ctx.state === 'running') return;
+    if (ctx.state === 'closed') return;
+    if (!this.resumePromise) {
+      this.resumePromise = ctx.resume().finally(() => {
+        this.resumePromise = null;
+      });
+    }
+    await this.resumePromise;
+  }
 
   private ensure(): AudioContext | null {
-    if (!this.unlocked) {
-      this.unlocked = true;
-      try {
-        this.ctx = new AudioContext();
-        this.masterGain = this.ctx.createGain();
-        this.masterGain.gain.value = this.master;
-        this.masterGain.connect(this.ctx.destination);
-
-        this.sfxGain = this.ctx.createGain();
-        this.sfxGain.gain.value = 1;
-        this.sfxGain.connect(this.masterGain);
-
-        this.musicGain = this.ctx.createGain();
-        this.musicGain.gain.value = this.musicVol;
-        this.musicGain.connect(this.masterGain);
-      } catch {
-        return null;
-      }
-    }
-    if (this.ctx?.state === 'suspended') void this.ctx.resume();
-    return this.ctx;
+    const ctx = this.initContext();
+    if (!ctx) return null;
+    if (ctx.state === 'suspended') void this.resumeContext();
+    return ctx;
   }
 
   private freqFromScale(theme: MusicTheme, stepIdx: number, octave = 0): number {
@@ -104,7 +165,7 @@ export class SoundManager {
     filterFreq?: number
   ): void {
     const ctx = this.ctx;
-    if (!ctx) return;
+    if (!ctx || ctx.state === 'closed') return;
     const osc = ctx.createOscillator();
     const g = ctx.createGain();
     osc.type = type;
@@ -129,7 +190,7 @@ export class SoundManager {
 
   private noiseAt(start: number, dur: number, vol: number, dest: GainNode, hp = 0): void {
     const ctx = this.ctx;
-    if (!ctx) return;
+    if (!ctx || ctx.state === 'closed') return;
     const n = Math.max(1, Math.floor(ctx.sampleRate * dur));
     const buffer = ctx.createBuffer(1, n, ctx.sampleRate);
     const data = buffer.getChannelData(0);
@@ -162,23 +223,32 @@ export class SoundManager {
     filterFreq?: number
   ): void {
     const ctx = this.ensure();
-    if (!ctx || !this.sfxGain) return;
+    if (!ctx || !this.sfxGain || ctx.state === 'closed') return;
     this.toneAt(freq, ctx.currentTime, dur, type, vol, this.sfxGain, slide, filterFreq);
   }
 
   private noise(dur: number, vol = 0.06, hp = 0): void {
     const ctx = this.ensure();
-    if (!ctx || !this.sfxGain) return;
+    if (!ctx || !this.sfxGain || ctx.state === 'closed') return;
     this.noiseAt(ctx.currentTime, dur, vol, this.sfxGain, hp);
   }
 
+  startMenuMusic(): void {
+    this.menuMode = true;
+    this.bossMode = false;
+    this.themeIdx = 0;
+    this.refreshMusic();
+  }
+
   setDistrict(id: number): void {
+    this.menuMode = false;
     this.districtId = id;
     this.themeIdx = Math.min(Math.max(0, id - 1), THEMES.length - 1);
     if (!this.bossMode) this.refreshMusic();
   }
 
   startBossMusic(): void {
+    this.menuMode = false;
     this.bossMode = true;
     this.refreshMusic();
   }
@@ -202,26 +272,36 @@ export class SoundManager {
   }
 
   private refreshMusic(): void {
-    this.stopMusic();
+    this.stopMusicLoop();
     const ctx = this.ensure();
     if (!ctx) return;
-    this.musicPlaying = true;
-    this.step = 0;
-    this.nextNoteTime = ctx.currentTime + 0.08;
-    this.scheduleMusic();
+    void this.resumeContext().then(() => {
+      if (!this.ctx || this.ctx.state === 'closed') return;
+      this.musicPlaying = true;
+      this.step = 0;
+      this.nextNoteTime = this.ctx.currentTime + 0.06;
+      this.scheduleMusic();
+    });
+  }
+
+  private activeTheme(): MusicTheme {
+    if (this.menuMode) return MENU_THEME;
+    if (this.bossMode) return THEMES[2] ?? THEMES[0];
+    return THEMES[this.themeIdx] ?? THEMES[0];
   }
 
   private scheduleMusic(): void {
     if (!this.musicPlaying) return;
     const ctx = this.ctx;
     const music = this.musicGain;
-    if (!ctx || !music) return;
+    if (!ctx || !music || ctx.state === 'closed') return;
 
-    const theme = THEMES[this.bossMode ? 2 : this.themeIdx] ?? THEMES[0];
+    const theme = this.activeTheme();
     const sp16 = 60 / (this.bossMode ? 148 : theme.bpm) / 4;
-    const lookAhead = 0.18;
+    const lookAhead = 0.22;
     const nightDark = this.night * 0.55;
     const filterCut = 2400 - nightDark * 900 + this.combatLayer * 400;
+    const menuMul = this.menuMode ? 0.82 : 1;
 
     while (this.nextNoteTime < ctx.currentTime + lookAhead) {
       const s = this.step;
@@ -229,14 +309,14 @@ export class SoundManager {
       const beat16 = s % 16;
 
       if (beat16 % 4 === 0) {
-        this.toneAt(55 + (beat16 === 0 ? 8 : 0), t, 0.09, 'sine', 0.22, music, -18);
-        this.noiseAt(t, 0.03, 0.06, music, 120);
+        this.toneAt(55 + (beat16 === 0 ? 8 : 0), t, 0.09, 'sine', 0.22 * menuMul, music, -18);
+        this.noiseAt(t, 0.03, 0.06 * menuMul, music, 120);
       }
-      if (beat16 === 4 || beat16 === 12) {
+      if (!this.menuMode && (beat16 === 4 || beat16 === 12)) {
         this.noiseAt(t, 0.07, 0.09, music, 800);
         this.toneAt(180, t, 0.05, 'triangle', 0.05, music, -40);
       }
-      if (this.combatLayer > 0.15 && s % 2 === 1) {
+      if (!this.menuMode && this.combatLayer > 0.15 && s % 2 === 1) {
         this.noiseAt(t, 0.025, 0.035 * (0.5 + this.combatLayer), music, 6000);
       }
 
@@ -244,15 +324,15 @@ export class SoundManager {
       const bassSemi = theme.bass[bassIdx] ?? 0;
       const bassFreq = theme.root * Math.pow(2, (bassSemi - 12) / 12);
       if (s % 2 === 0) {
-        this.toneAt(bassFreq, t, sp16 * 1.8, 'triangle', 0.1, music);
+        this.toneAt(bassFreq, t, sp16 * 1.8, 'triangle', 0.1 * menuMul, music);
       }
 
       const melIdx = s % theme.melody.length;
       const melSemi = theme.melody[melIdx] ?? 0;
       const melOct = melSemi >= 7 ? 1 : 0;
       const melFreq = this.freqFromScale(theme, melSemi, melOct);
-      const melVol = (this.bossMode ? 0.058 : 0.045) + (1 - nightDark) * 0.02 + this.combatLayer * 0.012;
-      if (s % 1 === 0 && (melIdx % 2 === 0 || this.bossMode)) {
+      const melVol = ((this.bossMode ? 0.058 : 0.045) + (1 - nightDark) * 0.02 + this.combatLayer * 0.012) * menuMul;
+      if (s % 1 === 0 && (melIdx % 2 === 0 || this.bossMode || this.menuMode)) {
         this.toneAt(melFreq, t, sp16 * 0.9, this.bossMode ? 'square' : theme.lead, melVol, music, 0, filterCut);
       }
 
@@ -262,23 +342,29 @@ export class SoundManager {
 
       if (s % 8 === 0) {
         const padFreq = this.freqFromScale(theme, theme.melody[melIdx] ?? 0, 1);
-        this.toneAt(padFreq, t, sp16 * 6, 'sine', 0.018, music, 0, 900);
+        this.toneAt(padFreq, t, sp16 * 6, 'sine', 0.018 * menuMul, music, 0, 900);
       }
 
       this.nextNoteTime += sp16;
       this.step++;
     }
 
-    this.musicTimer = window.setTimeout(() => this.scheduleMusic(), 28);
+    this.musicTimer = window.setTimeout(() => this.scheduleMusic(), 24);
   }
 
-  stopMusic(): void {
-    this.bossMode = false;
+  /** Stop the music loop only — keeps boss/menu flags for refreshMusic(). */
+  private stopMusicLoop(): void {
     this.musicPlaying = false;
     if (this.musicTimer !== null) {
       clearTimeout(this.musicTimer);
       this.musicTimer = null;
     }
+  }
+
+  stopMusic(): void {
+    this.bossMode = false;
+    this.menuMode = false;
+    this.stopMusicLoop();
   }
 
   /* ── SFX ── */
@@ -347,8 +433,11 @@ export class SoundManager {
   }
 
   powerUp(): void {
+    const ctx = this.ensure();
+    if (!ctx || !this.sfxGain) return;
+    const now = ctx.currentTime;
     [523, 659, 784, 988].forEach((f, i) => {
-      window.setTimeout(() => this.tone(f, 0.08, 'triangle', 0.07), i * 55);
+      this.toneAt(f, now + i * 0.055, 0.08, 'triangle', 0.07, this.sfxGain!);
     });
   }
 
@@ -385,7 +474,7 @@ export class SoundManager {
     [392, 330, 262, 196].forEach((f, i) => {
       this.toneAt(f, now + i * 0.14, 0.22, 'sawtooth', 0.09, this.sfxGain!, -30, 1200);
     });
-    this.stopMusic();
+    this.stopMusicLoop();
   }
 
   alienChatter(): void {
@@ -394,6 +483,11 @@ export class SoundManager {
   }
 
   telegraphWarn(): void {
+    const ctx = this.ensure();
+    if (!ctx) return;
+    const now = ctx.currentTime;
+    if (now - this.lastTelegraph < 0.22) return;
+    this.lastTelegraph = now;
     this.tone(220, 0.1, 'sawtooth', 0.05, 35);
     this.tone(180, 0.08, 'triangle', 0.04);
   }
@@ -463,7 +557,8 @@ export class SoundManager {
     }
   }
 
-  dispose(): void {
+  /** Full teardown — only for page unload, not between levels. */
+  shutdown(): void {
     this.stopMusic();
     void this.ctx?.close();
     this.ctx = null;

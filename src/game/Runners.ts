@@ -160,7 +160,7 @@ export function updateRunners(
   timeScale: number,
   playerZ: number,
   onTelegraph?: (r: RunnerEntity) => void,
-  night = 0
+  _night = 0
 ): void {
   for (const r of runners) {
     if (!r.alive) continue;
@@ -227,22 +227,6 @@ export function updateRunners(
     if (r.weakPoint.visible) {
       const wp = r.weakPoint.material as THREE.MeshBasicMaterial;
       wp.opacity = r.telegraph === 1 ? 0.38 : 0.16 + Math.sin(time * 6 + r.x) * 0.06;
-    }
-
-    if (alien) {
-      alien.traverse((c) => {
-        if (!(c instanceof THREE.Mesh) || !(c.material instanceof THREE.MeshStandardMaterial)) return;
-        if (c.userData.baseEmissiveIntensity === undefined) {
-          c.userData.baseEmissiveIntensity = c.material.emissiveIntensity;
-        }
-        const base = c.userData.baseEmissiveIntensity as number;
-        if (night > 0.08 && !c.material.transparent) {
-          c.material.emissive.set('#FFF3E0');
-          c.material.emissiveIntensity = base + night * 0.18;
-        } else {
-          c.material.emissiveIntensity = base;
-        }
-      });
     }
   }
 }

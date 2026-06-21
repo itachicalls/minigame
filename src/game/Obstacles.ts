@@ -29,24 +29,19 @@ export function obstacleClearHeight(kind: ObstacleKind): number {
   return HAZARD_META[kind].clearHeight;
 }
 
-function boostHazardMaterial(m: THREE.MeshStandardMaterial, night: number): void {
+function pulseBlinkMaterial(m: THREE.MeshStandardMaterial, time: number, blinkPhase: number): void {
   if (m.userData.baseEmissiveIntensity === undefined) {
     m.userData.baseEmissiveIntensity = m.emissiveIntensity;
   }
   const base = m.userData.baseEmissiveIntensity as number;
-  if (night > 0.08 && !m.transparent) {
-    m.emissive.set('#FFF3E0');
-    m.emissiveIntensity = base + night * 0.18;
-  } else {
-    m.emissiveIntensity = base;
-  }
+  m.emissiveIntensity = base + Math.sin(time * 4 + blinkPhase) * 0.06;
 }
 
 export function updateObstacles(
   obstacles: ObstacleEntity[],
   time: number,
   playerZ: number,
-  night = 0
+  _night = 0
 ): void {
   for (const o of obstacles) {
     if (o.hit || !isNearZ(o.z, playerZ)) continue;
@@ -72,18 +67,8 @@ export function updateObstacles(
       if (c.userData.isBlink) {
         const m = c.material as THREE.MeshStandardMaterial;
         if (m.emissiveIntensity !== undefined) {
-          if (c.userData.baseEmissiveIntensity === undefined) {
-            c.userData.baseEmissiveIntensity = m.emissiveIntensity;
-          }
-          m.emissiveIntensity =
-            (c.userData.baseEmissiveIntensity as number) +
-            0.22 +
-            Math.sin(time * 4 + blinkPhase) * 0.12 +
-            night * 0.35;
+          pulseBlinkMaterial(m, time, blinkPhase);
         }
-      }
-      if (c.material instanceof THREE.MeshStandardMaterial && !c.userData.isBlink && !c.userData.isHazardPad) {
-        boostHazardMaterial(c.material, night);
       }
       if (c.userData.isSpin) {
         c.rotation.y = time * 2 + phase;

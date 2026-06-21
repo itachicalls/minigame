@@ -64,6 +64,18 @@ export type GateOption = {
   packageCost?: number;
 };
 
+/** Per-district cinematic color grade applied in the post pass. */
+export type DistrictGrade = {
+  /** Warm highlights push (orange/teal split). */
+  warm: number;
+  /** Cool purple lift in shadows. */
+  purple: number;
+  /** Saturation multiplier. */
+  saturation: number;
+  /** Vignette strength. */
+  vignette: number;
+};
+
 export type DistrictTheme = {
   id: number;
   name: string;
@@ -76,6 +88,16 @@ export type DistrictTheme = {
   fogNear: number;
   fogFar: number;
   buildingHue: number;
+  /** Sunset/horizon band color used in the sky gradient. */
+  horizon?: string;
+  /** Primary neon accent (road glow, signage, accent light). */
+  accent?: string;
+  /** Secondary accent (turbo, trim, fill). */
+  accent2?: string;
+  /** Bright road edge color. */
+  accentEdge?: string;
+  /** Cinematic post-grade for this district. */
+  grade?: DistrictGrade;
 };
 
 export type LevelDef = {

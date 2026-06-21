@@ -431,6 +431,7 @@ export class Game {
 
     const theme = getDistrict(level.district);
     this.world.build(theme, this.levelLength);
+    void sfx.unlock();
     sfx.setDistrict(level.district);
 
     this.player = new Player(this.scene, getCharacter(this.save.selectedCharacter ?? 'johnny'));
@@ -1656,7 +1657,6 @@ export class Game {
   private endGame(won: boolean): void {
     if (!this.running) return;
     this.running = false;
-    sfx.stopMusic();
 
     let stars = 0;
     if (won) {
@@ -1691,8 +1691,8 @@ export class Game {
     if (ENABLE_TONE_MAPPING) {
       const nightFx = this.world.getNightFx();
       const vis = this.world.getGameplayNight();
-      const base = IS_MOBILE ? 1.18 : 1.08;
-      this.renderer.toneMappingExposure = base * (1 - nightFx * (IS_MOBILE ? 0.04 : 0.08)) + vis * (IS_MOBILE ? 0.14 : 0.1);
+      const base = IS_MOBILE ? 1.24 : 1.16;
+      this.renderer.toneMappingExposure = base * (1 - nightFx * (IS_MOBILE ? 0.05 : 0.09)) + vis * (IS_MOBILE ? 0.14 : 0.1);
     }
     if (this.pipeline) {
       const nightFx = this.world.getNightFx();
@@ -1704,6 +1704,7 @@ export class Game {
         combat * (IS_MOBILE ? 0.06 : 0.12);
       this.pipeline.setBloomStrength(bloom);
       this.pipeline.setGradePulse(pulse);
+      this.pipeline.setGrade(this.world.getGrade());
       this.pipeline.render();
     } else {
       this.renderer.render(this.scene, this.camera);
@@ -1792,7 +1793,6 @@ export class Game {
     this.viewportCleanup = null;
     this.stop();
     sfx.stopMusic();
-    sfx.dispose();
     this.cleanup();
     this.pipeline?.dispose();
     this.pipeline = null;

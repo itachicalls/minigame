@@ -2,12 +2,27 @@ import { SaveManager } from './save/SaveManager';
 import { UIManager } from './ui/UIManager';
 import { IS_MOBILE } from './game/platform';
 import { initViewportLock } from './game/viewport';
+import { kenneyAssets } from './game/KenneyAssets';
+import { sfx } from './game/SoundManager';
 
 const save = new SaveManager();
 const uiRoot = document.getElementById('ui-root')!;
 new UIManager(uiRoot, save);
 
+kenneyAssets.preload().catch(() => {
+  /* procedural fallback until Kenney assets finish loading */
+});
+
 initViewportLock();
+
+function bindAudioUnlock(): void {
+  const unlock = () => {
+    void sfx.unlock();
+  };
+  document.addEventListener('pointerdown', unlock, { once: true, capture: true });
+  document.addEventListener('keydown', unlock, { once: true, capture: true });
+}
+bindAudioUnlock();
 
 function blockZoom(e: Event): void {
   const t = e.target as HTMLElement;

@@ -12,6 +12,7 @@ import { mountCharacterPreview } from './CharacterPreview';
 import { IS_MOBILE } from '../game/platform';
 import { setGameActive } from '../game/viewport';
 import { hazardPoolLabels } from '../data/hazards';
+import { sfx } from '../game/SoundManager';
 
 const DISTRICT_MOOD: Record<number, string> = {
   1: 'district-sunny',
@@ -147,6 +148,7 @@ export class UIManager {
       </div>
     `);
     this.root.appendChild(screen);
+    void sfx.unlock();
 
     screen.querySelectorAll('.character-preview').forEach((el) => {
       const id = (el as HTMLElement).dataset.preview as MailmanId;
@@ -166,7 +168,10 @@ export class UIManager {
       });
     });
 
-    screen.querySelector('#btn-play')!.addEventListener('click', () => this.showLevels());
+    screen.querySelector('#btn-play')!.addEventListener('click', () => {
+      void sfx.unlock();
+      this.showLevels();
+    });
     screen.querySelector('#btn-shop')!.addEventListener('click', () => this.showShop());
     screen.querySelector('#btn-reset')!.addEventListener('click', () => {
       if (confirm('Reset all progress?')) {
@@ -174,6 +179,8 @@ export class UIManager {
         this.showMenu();
       }
     });
+
+    sfx.startMenuMusic();
   }
 
   showLevels(): void {
@@ -383,6 +390,7 @@ export class UIManager {
   }
 
   private startGame(levelId: string): void {
+    void sfx.unlock();
     this.activeLevelId = levelId;
     this.screen = 'game';
     setGameActive(true);
@@ -727,6 +735,7 @@ export class UIManager {
       </div>
     `);
     this.root.appendChild(screen);
+    sfx.startMenuMusic();
 
     if (canNext) {
       screen.querySelector('#btn-next')!.addEventListener('click', () => this.showBriefing(next!));
