@@ -185,6 +185,7 @@ export class UIManager {
 
   showLevels(): void {
     this.screen = 'levels';
+    setGameActive(false);
     this.setCanvasVisible(false);
     this.clear();
     const s = this.save.get();
@@ -252,6 +253,7 @@ export class UIManager {
     const dropoff = levelDropoffZ(lvl);
     const isBoss = lvl.name.toLowerCase().includes('boss');
     this.screen = 'briefing';
+    setGameActive(false);
     this.setCanvasVisible(false);
     this.clear();
     const screen = this.wrapScreen(`
@@ -711,6 +713,7 @@ export class UIManager {
 
   private showResults(result: GameResult): void {
     this.screen = 'results';
+    setGameActive(false);
     this.game?.stop();
     this.setCanvasVisible(false);
     this.clear();

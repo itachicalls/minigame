@@ -1,9 +1,11 @@
 import { SaveManager } from './save/SaveManager';
 import { UIManager } from './ui/UIManager';
-import { IS_MOBILE } from './game/platform';
+import { IS_ANDROID, IS_MOBILE } from './game/platform';
 import { initViewportLock } from './game/viewport';
 import { kenneyAssets } from './game/KenneyAssets';
 import { sfx } from './game/SoundManager';
+
+if (IS_ANDROID) document.body.classList.add('android');
 
 const save = new SaveManager();
 const uiRoot = document.getElementById('ui-root')!;
@@ -24,9 +26,22 @@ function bindAudioUnlock(): void {
 }
 bindAudioUnlock();
 
+const SCROLL_ALLOW =
+  '.shop-scroll, .route-scroll, .menu-scroll, .levels-screen, .mission-screen, .results-screen, .scroll-touch';
+
+function isScrollTarget(t: HTMLElement): boolean {
+  return !!t.closest(SCROLL_ALLOW);
+}
+
 function blockZoom(e: Event): void {
+  const te = e as TouchEvent;
+  if (te.touches && te.touches.length > 1) {
+    e.preventDefault();
+    return;
+  }
+  if (!document.body.classList.contains('game-active')) return;
   const t = e.target as HTMLElement;
-  if (t.closest('.shop-scroll, .levels-screen, .scroll-touch, .menu-scroll')) return;
+  if (isScrollTarget(t)) return;
   e.preventDefault();
 }
 
@@ -54,6 +69,7 @@ let lastTouchEnd = 0;
 document.addEventListener(
   'touchend',
   (e) => {
+    if (!document.body.classList.contains('game-active')) return;
     const now = Date.now();
     if (now - lastTouchEnd <= 320) e.preventDefault();
     lastTouchEnd = now;

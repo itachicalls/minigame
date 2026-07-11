@@ -74,7 +74,7 @@ import {
 import { ParticleSystem, CameraShake } from './Effects';
 import { RenderPipeline } from './RenderPipeline';
 import { SpectacleDirector, type SpectacleKind } from './SpectacleDirector';
-import { getPixelRatio, IS_MOBILE, isNearZ, ENABLE_SHADOWS, ENABLE_ANTIALIAS, ENABLE_TONE_MAPPING, ENABLE_BLOOM } from './platform';
+import { getPixelRatio, IS_MOBILE, IS_VERY_LOW_PERF, isNearZ, ENABLE_SHADOWS, ENABLE_ANTIALIAS, ENABLE_TONE_MAPPING, ENABLE_BLOOM } from './platform';
 import { getViewportMetrics, onViewportChange, applyMobileViewportLock } from './viewport';
 import { getCharacter } from '../data/characters';
 import { getLevel } from '../data/levels';
@@ -234,7 +234,7 @@ export class Game {
     this.renderer = new THREE.WebGLRenderer({
       canvas,
       antialias: ENABLE_ANTIALIAS,
-      powerPreference: IS_MOBILE ? 'low-power' : 'high-performance',
+      powerPreference: 'high-performance',
       stencil: false,
       depth: true,
       alpha: false,
@@ -766,7 +766,7 @@ export class Game {
     const pz = this.player.z;
     this.world.setPlayerZ(pz, dt);
     this.sunTick += dt;
-    if (this.sunTick >= (IS_MOBILE ? 0.1 : 0.05)) {
+    if (this.sunTick >= (IS_VERY_LOW_PERF ? 0.16 : IS_MOBILE ? 0.1 : 0.05)) {
       this.sunTick = 0;
       this.world.followSun(this.player.x, pz);
     }
@@ -930,15 +930,15 @@ export class Game {
 
   private proceduralSpawn(): void {
     const diff = this.level.difficulty;
-    const spawnAhead = IS_MOBILE ? 72 : 92;
+    const spawnAhead = IS_VERY_LOW_PERF ? 64 : IS_MOBILE ? 72 : 92;
     const ahead = this.player.z + spawnAhead;
     const maxPerFrame = 1;
     const horizon = this.spawnHorizon;
 
-    const maxBars = IS_MOBILE ? 5 : 8;
-    const maxObstacles = IS_MOBILE ? 4 : 6;
-    const maxRunners = IS_MOBILE ? 9 : 12;
-    const maxPowerUps = IS_MOBILE ? 6 : 10;
+    const maxBars = IS_VERY_LOW_PERF ? 3 : IS_MOBILE ? 5 : 8;
+    const maxObstacles = IS_VERY_LOW_PERF ? 3 : IS_MOBILE ? 4 : 6;
+    const maxRunners = IS_VERY_LOW_PERF ? 6 : IS_MOBILE ? 9 : 12;
+    const maxPowerUps = IS_VERY_LOW_PERF ? 4 : IS_MOBILE ? 6 : 10;
 
     let barN = 0;
     while (this.nextBarZ < ahead && this.nextBarZ < horizon && barN < maxPerFrame) {

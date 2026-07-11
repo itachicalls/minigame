@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { IS_MOBILE } from './platform';
+import { IS_MOBILE, IS_VERY_LOW_PERF } from './platform';
 
 export type WeatherMode = 'clear' | 'rain' | 'mist' | 'dust' | 'ash';
 
@@ -75,7 +75,7 @@ export class WeatherEffects {
   build(districtId: number, _levelLength: number): void {
     this.clear();
     this.profile = profileForDistrict(districtId);
-    this.count = IS_MOBILE ? 90 : 160;
+    this.count = IS_VERY_LOW_PERF ? 55 : IS_MOBILE ? 90 : 160;
     if (this.profile.mode === 'clear') return;
 
     const positions = new Float32Array(this.count * 3);

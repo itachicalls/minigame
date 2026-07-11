@@ -6,21 +6,33 @@ export const IS_MOBILE =
     window.matchMedia('(pointer: coarse)').matches) ||
   /Android|iPhone|iPad|iPod|Mobile/i.test(typeof navigator !== 'undefined' ? navigator.userAgent : '');
 
+/** Android WebGL stacks often lag vs iOS at the same nominal tier — extra GPU/scene cuts. */
+export const IS_ANDROID =
+  typeof navigator !== 'undefined' && /Android/i.test(navigator.userAgent);
+
+export type PerfTier = 'desktop' | 'mobile' | 'mobile-low';
+export const PERF_TIER: PerfTier = IS_ANDROID && IS_MOBILE ? 'mobile-low' : IS_MOBILE ? 'mobile' : 'desktop';
+export const IS_LOW_PERF = PERF_TIER !== 'desktop';
+export const IS_VERY_LOW_PERF = PERF_TIER === 'mobile-low';
+
 export const ENABLE_SHADOWS = false;
 export const ENABLE_ANTIALIAS = false;
 export const ENABLE_TONE_MAPPING = true;
-export const ENABLE_BLOOM = true;
-export const BLOOM_RES_SCALE = IS_MOBILE ? 0.4 : 0.32;
+/** Full bloom post-stack is costly on many Android GPUs — direct render instead. */
+export const ENABLE_BLOOM = !IS_VERY_LOW_PERF;
+export const BLOOM_RES_SCALE = IS_VERY_LOW_PERF ? 0.28 : IS_MOBILE ? 0.38 : 0.32;
 
-export const NEAR_RANGE = IS_MOBILE ? 44 : 58;
-export const WORLD_AHEAD = IS_MOBILE ? 72 : 80;
-export const WORLD_BEHIND = IS_MOBILE ? 28 : 32;
-export const SKY_RES = IS_MOBILE ? 256 : 320;
-export const SKY_UPDATE_SEC = IS_MOBILE ? 0.35 : 0.45;
+export const NEAR_RANGE = IS_VERY_LOW_PERF ? 36 : IS_MOBILE ? 44 : 58;
+export const WORLD_AHEAD = IS_VERY_LOW_PERF ? 62 : IS_MOBILE ? 72 : 80;
+export const WORLD_BEHIND = IS_VERY_LOW_PERF ? 22 : IS_MOBILE ? 28 : 32;
+export const SKY_RES = IS_VERY_LOW_PERF ? 192 : IS_MOBILE ? 256 : 320;
+export const SKY_UPDATE_SEC = IS_VERY_LOW_PERF ? 0.55 : IS_MOBILE ? 0.35 : 0.45;
 
 export function getPixelRatio(): number {
   const dpr = typeof window !== 'undefined' ? window.devicePixelRatio : 1;
-  return IS_MOBILE ? Math.min(dpr, 1.25) : Math.min(dpr, 1.1);
+  if (IS_VERY_LOW_PERF) return Math.min(dpr, 1);
+  if (IS_MOBILE) return Math.min(dpr, 1.15);
+  return Math.min(dpr, 1.1);
 }
 
 export function isNearZ(z: number, playerZ: number, range = NEAR_RANGE): boolean {

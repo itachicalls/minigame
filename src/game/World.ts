@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { DistrictTheme } from '../types';
 import { addMesh, mat, disposeObject3D } from './ModelUtils';
-import { IS_MOBILE, WORLD_AHEAD, WORLD_BEHIND, SKY_RES, SKY_UPDATE_SEC, freezeStatic, lerpColor, cinematicNightLevel, sceneGlowStrength, nightEffectStrength, lightingNightBlend, gameplayNightVisibility } from './platform';
+import { IS_MOBILE, IS_VERY_LOW_PERF, WORLD_AHEAD, WORLD_BEHIND, SKY_RES, SKY_UPDATE_SEC, freezeStatic, lerpColor, cinematicNightLevel, sceneGlowStrength, nightEffectStrength, lightingNightBlend, gameplayNightVisibility } from './platform';
 import { SkyEffects } from './SkyEffects';
 import type { SpectacleKind } from './SpectacleDirector';
 import { getBrickTexture, getSidingTexture, getRoofShingleTexture, getBarkTexture, getLeafTexture } from './WorldTextures';
@@ -419,7 +419,7 @@ export class World {
     }
 
     // Clouds
-    const cloudCount = IS_MOBILE ? 3 : 5;
+    const cloudCount = IS_VERY_LOW_PERF ? 2 : IS_MOBILE ? 3 : 5;
     for (let i = 0; i < cloudCount; i++) {
       const cloud = this.makeCloud(rng);
       const cz = rng() * (levelLength + 60);
@@ -781,7 +781,7 @@ export class World {
 
     if (night > 0.42) {
       const starAlpha = Math.min(1, (night - 0.42) * 1.45);
-      const starCount = IS_MOBILE ? 50 : 65;
+      const starCount = IS_VERY_LOW_PERF ? 32 : IS_MOBILE ? 50 : 65;
       for (let i = 0; i < starCount; i++) {
         const sx = ((i * 97) % 1000) / 1000;
         const sy = ((i * 53) % 720) / 1000;
@@ -2560,7 +2560,7 @@ export class World {
   setPlayerZ(z: number, dt: number): void {
     this.playerZ = z;
     this.cullTimer += dt;
-    if (this.cullTimer < (IS_MOBILE ? 0.12 : 0.08)) return;
+    if (this.cullTimer < (IS_VERY_LOW_PERF ? 0.18 : IS_MOBILE ? 0.12 : 0.08)) return;
     this.cullTimer = 0;
 
     const minZ = z - WORLD_BEHIND;

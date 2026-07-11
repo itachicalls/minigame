@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { IS_MOBILE } from './platform';
+import { IS_MOBILE, IS_VERY_LOW_PERF } from './platform';
 
 type Particle = {
   mesh: THREE.Mesh;
@@ -9,7 +9,7 @@ type Particle = {
   active: boolean;
 };
 
-const MAX_PARTICLES = IS_MOBILE ? 28 : 48;
+const MAX_PARTICLES = IS_VERY_LOW_PERF ? 18 : IS_MOBILE ? 28 : 48;
 const SHARED_GEO = new THREE.BoxGeometry(0.1, 0.1, 0.1);
 const SPARK_GEO = new THREE.PlaneGeometry(0.14, 0.04);
 
@@ -51,7 +51,7 @@ export class ParticleSystem {
   }
 
   burst(x: number, y: number, z: number, color: string, count = 12, speed = 4): void {
-    const cap = IS_MOBILE ? Math.min(count, 10) : count;
+    const cap = IS_VERY_LOW_PERF ? Math.min(count, 6) : IS_MOBILE ? Math.min(count, 10) : count;
     let spawned = 0;
     for (const p of this.particles) {
       if (spawned >= cap) break;
