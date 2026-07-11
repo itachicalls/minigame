@@ -178,7 +178,7 @@ export function buildHazardMesh(group: THREE.Group, kind: ObstacleKind): void {
   applyObstacleCautionAccents(group);
 }
 
-function cautionStripeMat(): THREE.MeshStandardMaterial {
+function cautionStripeMat(): THREE.Material {
   const tex = getCautionStripeTexture();
   tex.repeat.set(1.2, 1);
   return mat('#FFFFFF', {

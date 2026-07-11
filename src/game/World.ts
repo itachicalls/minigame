@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { DistrictTheme } from '../types';
 import { addMesh, mat, disposeObject3D } from './ModelUtils';
-import { IS_MOBILE, IS_VERY_LOW_PERF, WORLD_AHEAD, WORLD_BEHIND, SKY_RES, SKY_UPDATE_SEC, freezeStatic, lerpColor, cinematicNightLevel, sceneGlowStrength, nightEffectStrength, lightingNightBlend, gameplayNightVisibility } from './platform';
+import { IS_MOBILE, IS_VERY_LOW_PERF, WORLD_AHEAD, WORLD_BEHIND, SKY_RES, SKY_UPDATE_SEC, LIGHT_UPDATE_SEC, ENABLE_WEATHER, freezeStatic, lerpColor, cinematicNightLevel, sceneGlowStrength, nightEffectStrength, lightingNightBlend, gameplayNightVisibility } from './platform';
 import { SkyEffects } from './SkyEffects';
 import type { SpectacleKind } from './SpectacleDirector';
 import { getBrickTexture, getSidingTexture, getRoofShingleTexture, getBarkTexture, getLeafTexture } from './WorldTextures';
@@ -107,6 +107,7 @@ export class World {
   private gameplayRimLight: THREE.DirectionalLight | null = null;
   private skyPhase = -1;
   private skyTick = 0;
+  private lightTick = 0;
   private skyNight = 0;
   private skyNightFx = 0;
   private blackoutBoost = 0;
@@ -142,17 +143,20 @@ export class World {
     grassTex.wrapS = grassTex.wrapT = THREE.RepeatWrapping;
     grassTex.repeat.set(6, terrainLen / 10);
     const grassColor = new THREE.Color(theme.ground).multiplyScalar(IS_MOBILE ? 0.88 : 0.94);
+    const grassMat = IS_VERY_LOW_PERF
+      ? new THREE.MeshLambertMaterial({ map: grassTex, color: grassColor })
+      : new THREE.MeshStandardMaterial({
+          map: grassTex,
+          color: grassColor,
+          roughness: 0.96,
+          metalness: 0.02,
+          emissive: new THREE.Color(theme.ground).multiplyScalar(0.06),
+          emissiveIntensity: 0.08,
+        });
     const grass = addMesh(
       this.scene,
       new THREE.PlaneGeometry(50, terrainLen),
-      new THREE.MeshStandardMaterial({
-        map: grassTex,
-        color: grassColor,
-        roughness: 0.96,
-        metalness: 0.02,
-        emissive: new THREE.Color(theme.ground).multiplyScalar(0.06),
-        emissiveIntensity: 0.08,
-      }),
+      grassMat,
       0,
       0,
       terrainZ,
@@ -224,19 +228,25 @@ export class World {
       tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
       tex.repeat.set(1, roadRepeatY);
     }
+    const roadMat = IS_VERY_LOW_PERF
+      ? new THREE.MeshLambertMaterial({
+          map: this.roadTexture,
+          color: '#e8eef4',
+        })
+      : new THREE.MeshStandardMaterial({
+          map: this.roadTexture,
+          emissiveMap: this.roadEmissiveTex,
+          emissive: this.roadAccent.primary,
+          emissiveIntensity: IS_MOBILE ? 0.28 : 0.26,
+          color: IS_MOBILE ? '#e8eef4' : '#e2eaf2',
+          roughness: 0.48,
+          metalness: 0.28,
+          envMapIntensity: 0.55,
+        });
     const road = addMesh(
       this.scene,
       new THREE.PlaneGeometry(9.5, levelLength + 140),
-      new THREE.MeshStandardMaterial({
-        map: this.roadTexture,
-        emissiveMap: this.roadEmissiveTex,
-        emissive: this.roadAccent.primary,
-        emissiveIntensity: IS_MOBILE ? 0.28 : 0.26,
-        color: IS_MOBILE ? '#e8eef4' : '#e2eaf2',
-        roughness: 0.48,
-        metalness: 0.28,
-        envMapIntensity: 0.55,
-      }),
+      roadMat,
       0,
       0,
       levelLength / 2,
@@ -249,72 +259,74 @@ export class World {
     this.roadMesh = road;
     this.rootMeshes.push(road);
 
-    const roadGlow = addMesh(
-      this.scene,
-      new THREE.PlaneGeometry(9.5, levelLength + 140),
-      new THREE.MeshBasicMaterial({
-        map: this.roadGlowTex,
-        color: this.roadAccent.primary,
-        transparent: true,
-        opacity: IS_MOBILE ? 0.28 : 0.34,
-        blending: THREE.AdditiveBlending,
-        depthWrite: false,
-      }),
-      0,
-      0.032,
-      levelLength / 2,
-      false
-    );
-    roadGlow.rotation.x = -Math.PI / 2;
-    roadGlow.userData.isTerrain = true;
-    this.roadGlowMesh = roadGlow;
-    this.rootMeshes.push(roadGlow);
+    if (!IS_VERY_LOW_PERF) {
+      const roadGlow = addMesh(
+        this.scene,
+        new THREE.PlaneGeometry(9.5, levelLength + 140),
+        new THREE.MeshBasicMaterial({
+          map: this.roadGlowTex,
+          color: this.roadAccent.primary,
+          transparent: true,
+          opacity: IS_MOBILE ? 0.28 : 0.34,
+          blending: THREE.AdditiveBlending,
+          depthWrite: false,
+        }),
+        0,
+        0.032,
+        levelLength / 2,
+        false
+      );
+      roadGlow.rotation.x = -Math.PI / 2;
+      roadGlow.userData.isTerrain = true;
+      this.roadGlowMesh = roadGlow;
+      this.rootMeshes.push(roadGlow);
 
-    const streakTex = this.getRoadStreakTexture();
-    const roadStreak = addMesh(
-      this.scene,
-      new THREE.PlaneGeometry(9.5, levelLength + 140),
-      new THREE.MeshBasicMaterial({
-        map: streakTex,
-        color: this.roadAccent.secondary,
-        transparent: true,
-        opacity: 0,
-        blending: THREE.AdditiveBlending,
-        depthWrite: false,
-      }),
-      0,
-      0.033,
-      levelLength / 2,
-      false
-    );
-    roadStreak.rotation.x = -Math.PI / 2;
-    roadStreak.userData.isTerrain = true;
-    this.roadStreakTex = streakTex;
-    this.roadStreakMesh = roadStreak;
-    this.rootMeshes.push(roadStreak);
+      const streakTex = this.getRoadStreakTexture();
+      const roadStreak = addMesh(
+        this.scene,
+        new THREE.PlaneGeometry(9.5, levelLength + 140),
+        new THREE.MeshBasicMaterial({
+          map: streakTex,
+          color: this.roadAccent.secondary,
+          transparent: true,
+          opacity: 0,
+          blending: THREE.AdditiveBlending,
+          depthWrite: false,
+        }),
+        0,
+        0.033,
+        levelLength / 2,
+        false
+      );
+      roadStreak.rotation.x = -Math.PI / 2;
+      roadStreak.userData.isTerrain = true;
+      this.roadStreakTex = streakTex;
+      this.roadStreakMesh = roadStreak;
+      this.rootMeshes.push(roadStreak);
 
-    const rainTex = this.getRoadRainTexture();
-    const roadRain = addMesh(
-      this.scene,
-      new THREE.PlaneGeometry(9.8, levelLength + 140),
-      new THREE.MeshBasicMaterial({
-        map: rainTex,
-        color: '#B3E5FC',
-        transparent: true,
-        opacity: 0,
-        blending: THREE.AdditiveBlending,
-        depthWrite: false,
-      }),
-      0,
-      0.034,
-      levelLength / 2,
-      false
-    );
-    roadRain.rotation.x = -Math.PI / 2;
-    roadRain.userData.isTerrain = true;
-    this.roadRainTex = rainTex;
-    this.roadRainMesh = roadRain;
-    this.rootMeshes.push(roadRain);
+      const rainTex = this.getRoadRainTexture();
+      const roadRain = addMesh(
+        this.scene,
+        new THREE.PlaneGeometry(9.8, levelLength + 140),
+        new THREE.MeshBasicMaterial({
+          map: rainTex,
+          color: '#B3E5FC',
+          transparent: true,
+          opacity: 0,
+          blending: THREE.AdditiveBlending,
+          depthWrite: false,
+        }),
+        0,
+        0.034,
+        levelLength / 2,
+        false
+      );
+      roadRain.rotation.x = -Math.PI / 2;
+      roadRain.userData.isTerrain = true;
+      this.roadRainTex = rainTex;
+      this.roadRainMesh = roadRain;
+      this.rootMeshes.push(roadRain);
+    }
 
     this.placeBoostPads(theme, levelLength);
 
@@ -409,8 +421,12 @@ export class World {
     this.skyEffects.build(levelLength, rng);
 
     if (this.weather) this.weather.dispose();
-    this.weather = new WeatherEffects(this.scene);
-    this.weather.build(theme.id, levelLength);
+    if (ENABLE_WEATHER) {
+      this.weather = new WeatherEffects(this.scene);
+      this.weather.build(theme.id, levelLength);
+    } else {
+      this.weather = null;
+    }
 
     if (theme.id <= 4 && kenneyAssets.readyFor(theme.id)) {
       this.placeKenneySkyline(theme.id, levelLength, rng);
@@ -430,14 +446,14 @@ export class World {
     }
 
     // Buildings, props, alien crash sites
-    const propStep = IS_MOBILE ? 22 : 26;
-    const propJitter = IS_MOBILE ? 5 : 9;
+    const propStep = IS_VERY_LOW_PERF ? 40 : IS_MOBILE ? 22 : 26;
+    const propJitter = IS_VERY_LOW_PERF ? 10 : IS_MOBILE ? 5 : 9;
     const buildingSlots: { side: number; z: number }[] = [];
     for (let z = 0; z < levelLength + 50; z += propStep + Math.floor(rng() * propJitter)) {
       for (const side of [-1, 1]) {
         const roll = rng();
         const placeBuilding =
-          roll > (theme.id === 3 ? 0.26 : IS_MOBILE ? 0.14 : 0.12);
+          roll > (IS_VERY_LOW_PERF ? 0.38 : theme.id === 3 ? 0.26 : IS_MOBILE ? 0.14 : 0.12);
         if (placeBuilding) {
           const mood = sceneGlowStrength(cinematicNightLevel(0, theme.id), theme.id);
           let building: THREE.Group;
@@ -877,15 +893,17 @@ export class World {
       this.roadFillLight.color.set(lerpColor('#FFFBF5', '#E8F4FF', lightNight * 0.35));
     }
     if (this.roadMesh) {
-      const rm = this.roadMesh.material as THREE.MeshStandardMaterial;
-      const dayPop = (IS_MOBILE ? 0.12 : 0.08) + (1 - lightNight) * (IS_MOBILE ? 0.14 : 0.1);
-      rm.emissiveIntensity = dayPop + fx * (IS_MOBILE ? 0.32 : 0.55);
-      rm.emissive.set(this.roadAccent.primary).lerp(new THREE.Color(this.roadAccent.secondary), fx * 0.35);
-      rm.roughness = 0.82 - lightNight * 0.1 - fx * 0.08;
-      rm.metalness = 0.06 + fx * 0.14;
+      const rm = this.roadMesh.material as THREE.MeshStandardMaterial | THREE.MeshLambertMaterial;
       const roadDay = IS_MOBILE ? '#e8edf2' : '#dfe6ec';
       const roadNight = IS_MOBILE ? '#c8d2dc' : '#b0bcc8';
       rm.color.set(roadDay).lerp(new THREE.Color(roadNight), lightNight * (IS_MOBILE ? 0.15 : 0.22));
+      if (rm instanceof THREE.MeshStandardMaterial) {
+        const dayPop = (IS_MOBILE ? 0.12 : 0.08) + (1 - lightNight) * (IS_MOBILE ? 0.14 : 0.1);
+        rm.emissiveIntensity = dayPop + fx * (IS_MOBILE ? 0.32 : 0.55);
+        rm.emissive.set(this.roadAccent.primary).lerp(new THREE.Color(this.roadAccent.secondary), fx * 0.35);
+        rm.roughness = 0.82 - lightNight * 0.1 - fx * 0.08;
+        rm.metalness = 0.06 + fx * 0.14;
+      }
     }
     if (this.roadGlowMesh) {
       const gm = this.roadGlowMesh.material as THREE.MeshBasicMaterial;
@@ -1489,7 +1507,11 @@ export class World {
     this.skyNightFx = sceneGlowStrength(night, this.districtId);
 
     this.skyEffects?.setNight(night);
-    this.applySkyLighting(night);
+    this.lightTick += dt;
+    if (LIGHT_UPDATE_SEC <= 0 || this.lightTick >= LIGHT_UPDATE_SEC) {
+      this.lightTick = 0;
+      this.applySkyLighting(night);
+    }
 
     this.skyTick += dt;
     if (this.skyTick < SKY_UPDATE_SEC) return;
@@ -2525,6 +2547,8 @@ export class World {
     this.scene.add(this.sunLight);
     this.scene.add(this.sunLight.target);
 
+    if (IS_VERY_LOW_PERF) return;
+
     this.fillLight = new THREE.DirectionalLight(theme.skyBottom || theme.sky, theme.ambient * 0.22);
     this.fillLight.position.set(-18, 22, 12);
     this.fillLight.name = 'fill';
@@ -2632,7 +2656,7 @@ export class World {
     if (IS_MOBILE) lightNight *= 0.72;
     const wetMul = 1 + this.wetFactor * (this.wetFactor > 0.45 ? 1 : 0.65);
 
-    if (this.roadMesh) {
+    if (this.roadMesh && !IS_VERY_LOW_PERF) {
       const rm = this.roadMesh.material as THREE.MeshStandardMaterial;
       const dayPop = (IS_MOBILE ? 0.12 : 0.1) + (1 - lightNight) * (IS_MOBILE ? 0.14 : 0.12);
       const base = dayPop + nightFx * (IS_MOBILE ? 0.32 : 0.55);
@@ -2645,6 +2669,9 @@ export class World {
       const roadWet = new THREE.Color('#c8dce8');
       rm.color.set(roadDay).lerp(new THREE.Color(roadNight), lightNight * (IS_MOBILE ? 0.15 : 0.22));
       if (this.wetFactor > 0.15) rm.color.lerp(roadWet, this.wetFactor * 0.35);
+    } else if (this.roadMesh && IS_VERY_LOW_PERF) {
+      const rm = this.roadMesh.material as THREE.MeshLambertMaterial;
+      rm.color.set(IS_MOBILE ? '#eef2f6' : '#e6edf4');
     }
     if (this.roadGlowMesh) {
       const gm = this.roadGlowMesh.material as THREE.MeshBasicMaterial;
@@ -2711,7 +2738,9 @@ export class World {
       const gMat = grass.material as THREE.MeshStandardMaterial;
       if (gMat.map) gMat.map.offset.y = -playerZ * 0.02;
     }
-    const animRange = IS_MOBILE ? 38 : 55;
+    const animRange = IS_VERY_LOW_PERF ? 28 : IS_MOBILE ? 38 : 55;
+    const skipAnim = IS_VERY_LOW_PERF && Math.floor(time * 15) % 2 === 0;
+    if (!skipAnim) {
     for (const p of this.animProps) {
       if (Math.abs(p.worldZ - playerZ) > animRange) continue;
       switch (p.kind) {
@@ -2740,6 +2769,7 @@ export class World {
           break;
         }
       }
+    }
     }
   }
 

@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { addMesh, disposeObject3D } from './ModelUtils';
-import { IS_MOBILE } from './platform';
+import { IS_MOBILE, IS_VERY_LOW_PERF } from './platform';
 import { createMailmanMesh } from './MailmanModel';
 import { setPackageOrbTheme, updateCarriedPackageOrb } from './PackageVisual';
 import type { CharacterDef } from '../data/characters';
@@ -24,8 +24,8 @@ export class Player {
   private trailPhase = 0;
   private nightLevel = 0;
   private footLight: THREE.Mesh;
-  private playerLight: THREE.PointLight;
-  private headLight: THREE.PointLight;
+  private playerLight: THREE.PointLight | null = null;
+  private headLight: THREE.PointLight | null = null;
   private mailGunMuzzle: THREE.Mesh;
   private visorMesh: THREE.Mesh | null = null;
   private body: THREE.Group;
@@ -119,13 +119,15 @@ export class Player {
     );
     this.footLight.rotation.x = -Math.PI / 2;
 
-    this.playerLight = new THREE.PointLight('#FFF8E1', 0, 9, 1.35);
-    this.playerLight.position.set(0, 1.15, 0.35);
-    this.mesh.add(this.playerLight);
+    if (!IS_VERY_LOW_PERF) {
+      this.playerLight = new THREE.PointLight('#FFF8E1', 0, 9, 1.35);
+      this.playerLight.position.set(0, 1.15, 0.35);
+      this.mesh.add(this.playerLight);
 
-    this.headLight = new THREE.PointLight('#E1F5FE', 0, 16, 1.15);
-    this.headLight.position.set(0, 1.6, 2.8);
-    this.mesh.add(this.headLight);
+      this.headLight = new THREE.PointLight('#E1F5FE', 0, 16, 1.15);
+      this.headLight.position.set(0, 1.6, 2.8);
+      this.mesh.add(this.headLight);
+    }
 
     scene.add(this.mesh);
   }
@@ -232,13 +234,16 @@ export class Player {
   private updateNightGear(moving: boolean): void {
     const fx = this.nightLevel;
 
-    // Always-on warm key so the character reads with depth in daylight, ramping to a bright lantern at night.
-    const keyBase = IS_MOBILE ? 0.85 : 1.1;
-    this.playerLight.intensity = keyBase + fx * (IS_MOBILE ? 3.2 : 4.4);
-    this.playerLight.color.set(fx > 0.5 ? '#E1F5FE' : '#FFE7C2');
+    if (this.playerLight && this.headLight) {
+      const keyBase = IS_MOBILE ? 0.85 : 1.1;
+      this.playerLight.intensity = keyBase + fx * (IS_MOBILE ? 3.2 : 4.4);
+      this.playerLight.color.set(fx > 0.5 ? '#E1F5FE' : '#FFE7C2');
 
-    this.headLight.intensity = (IS_MOBILE ? 0.3 : 0.5) + fx * (IS_MOBILE ? 2.4 : 3.6);
-    this.headLight.color.set('#BBDEFB');
+      this.headLight.intensity = (IS_MOBILE ? 0.3 : 0.5) + fx * (IS_MOBILE ? 2.4 : 3.6);
+      this.headLight.color.set('#BBDEFB');
+    }
+
+    if (IS_VERY_LOW_PERF) return;
 
     const fl = this.footLight.material as THREE.MeshBasicMaterial;
     fl.opacity = fx * 0.22;

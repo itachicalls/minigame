@@ -34,7 +34,7 @@ const MAIL_THEME: PackageTheme = {
 const SEG = IS_MOBILE ? 8 : 12;
 const PARTICLES = IS_MOBILE ? 4 : 6;
 
-function glowMat(color: string, intensity: number, opacity = 1): THREE.MeshStandardMaterial {
+function glowMat(color: string, intensity: number, opacity = 1): THREE.Material {
   return mat(color, {
     emissive: color,
     emissiveIntensity: intensity,

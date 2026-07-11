@@ -1,7 +1,8 @@
 import * as THREE from 'three';
-import { IS_MOBILE } from './platform';
+import { IS_MOBILE, IS_VERY_LOW_PERF } from './platform';
 
-const matCache = new Map<string, THREE.MeshStandardMaterial>();
+const standardCache = new Map<string, THREE.MeshStandardMaterial>();
+const lambertCache = new Map<string, THREE.MeshLambertMaterial>();
 
 function matKey(color: string, opts: Partial<THREE.MeshStandardMaterialParameters>): string {
   return [
@@ -15,12 +16,27 @@ function matKey(color: string, opts: Partial<THREE.MeshStandardMaterialParameter
   ].join('|');
 }
 
-export function mat(color: string, opts: Partial<THREE.MeshStandardMaterialParameters> = {}): THREE.MeshStandardMaterial {
+export function mat(color: string, opts: Partial<THREE.MeshStandardMaterialParameters> = {}): THREE.Material {
+  if (IS_VERY_LOW_PERF) {
+    const key = matKey(color, opts);
+    let m = lambertCache.get(key);
+    if (!m) {
+      m = new THREE.MeshLambertMaterial({
+        color,
+        emissive: opts.emissive ? new THREE.Color(opts.emissive as string) : undefined,
+        emissiveIntensity: opts.emissiveIntensity ?? 0,
+        transparent: opts.transparent,
+        opacity: opts.opacity ?? 1,
+      });
+      lambertCache.set(key, m);
+    }
+    return m;
+  }
   const key = matKey(color, opts);
-  let m = matCache.get(key);
+  let m = standardCache.get(key);
   if (!m) {
     m = new THREE.MeshStandardMaterial({ color, roughness: 0.65, ...opts });
-    matCache.set(key, m);
+    standardCache.set(key, m);
   }
   return m;
 }
@@ -38,7 +54,7 @@ export function addMesh(
   m.position.set(x, y, z);
   m.castShadow = castShadow;
   m.receiveShadow = !IS_MOBILE;
-  if (!IS_MOBILE) m.frustumCulled = true;
+  m.frustumCulled = true;
   parent.add(m);
   return m;
 }
@@ -65,6 +81,8 @@ export function disposeObject3D(obj: THREE.Object3D): void {
 }
 
 export function clearMatCache(): void {
-  matCache.forEach((m) => m.dispose());
-  matCache.clear();
+  standardCache.forEach((m) => m.dispose());
+  standardCache.clear();
+  lambertCache.forEach((m) => m.dispose());
+  lambertCache.clear();
 }

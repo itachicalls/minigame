@@ -23,7 +23,7 @@ const TIER_POOL: Record<ChibiTier, ChibiSpecies[]> = {
   boss: ['bull', 'alien', 'frog'],
 };
 
-function chibiSkin(color: string): THREE.MeshStandardMaterial {
+function chibiSkin(color: string): THREE.Material {
   return mat(color, { emissive: '#000000', emissiveIntensity: 0, roughness: 0.92, metalness: 0 });
 }
 

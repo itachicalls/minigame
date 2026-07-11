@@ -74,7 +74,7 @@ import {
 import { ParticleSystem, CameraShake } from './Effects';
 import { RenderPipeline } from './RenderPipeline';
 import { SpectacleDirector, type SpectacleKind } from './SpectacleDirector';
-import { getPixelRatio, IS_MOBILE, IS_VERY_LOW_PERF, isNearZ, ENABLE_SHADOWS, ENABLE_ANTIALIAS, ENABLE_TONE_MAPPING, ENABLE_BLOOM } from './platform';
+import { getPixelRatio, getRenderSize, IS_MOBILE, IS_VERY_LOW_PERF, MOBILE_TARGET_FPS, isNearZ, ENABLE_SHADOWS, ENABLE_ANTIALIAS, ENABLE_TONE_MAPPING, ENABLE_BLOOM } from './platform';
 import { getViewportMetrics, onViewportChange, applyMobileViewportLock } from './viewport';
 import { getCharacter } from '../data/characters';
 import { getLevel } from '../data/levels';
@@ -221,6 +221,7 @@ export class Game {
   private cb: GameCallbacks;
   private raf = 0;
   private lastFrame = 0;
+  private mobileFrameAcc = 0;
   private hudTimer = 0;
   private lastConvoyCount = -1;
   private baseCamera = new THREE.Vector3();
@@ -253,7 +254,7 @@ export class Game {
     this.renderer.sortObjects = false;
     this.renderer.info.autoReset = true;
     this.scene = new THREE.Scene();
-    this.camera = new THREE.PerspectiveCamera(55, 1, 0.1, IS_MOBILE ? 150 : 180);
+    this.camera = new THREE.PerspectiveCamera(55, 1, 0.1, IS_VERY_LOW_PERF ? 120 : IS_MOBILE ? 150 : 180);
     if (ENABLE_BLOOM) {
       this.pipeline = new RenderPipeline(this.renderer, this.scene, this.camera);
     }
@@ -658,6 +659,17 @@ export class Game {
     const now = performance.now();
     const dt = Math.min(0.05, Math.max(0.001, (now - this.lastFrame) / 1000));
     this.lastFrame = now;
+
+    if (IS_VERY_LOW_PERF) {
+      const step = 1 / MOBILE_TARGET_FPS;
+      this.mobileFrameAcc += dt;
+      if (this.mobileFrameAcc < step) return;
+      this.mobileFrameAcc -= step;
+      this.update(step);
+      this.render();
+      return;
+    }
+
     this.update(dt);
     this.render();
   };
@@ -1729,8 +1741,9 @@ export class Game {
     this.lastVpOffTop = m.offsetTop;
     this.lastVpOffLeft = m.offsetLeft;
     applyMobileViewportLock();
+    const { w, h } = getRenderSize(m.width, m.height);
     this.renderer.setPixelRatio(getPixelRatio());
-    this.renderer.setSize(m.width, m.height, false);
+    this.renderer.setSize(w, h, false);
     this.camera.aspect = m.width / m.height;
     this.camera.updateProjectionMatrix();
   }
@@ -1752,11 +1765,12 @@ export class Game {
       h = this.canvas.clientHeight || window.innerHeight;
     }
     if (w < 1 || h < 1) return;
+    const { w: rw, h: rh } = getRenderSize(w, h);
     this.renderer.setPixelRatio(getPixelRatio());
-    this.renderer.setSize(w, h, false);
-    this.pipeline?.setSize(w, h);
+    this.renderer.setSize(rw, rh, false);
+    this.pipeline?.setSize(rw, rh);
     this.camera.aspect = w / h;
-    this.camera.far = IS_MOBILE ? 150 : 180;
+    this.camera.far = IS_VERY_LOW_PERF ? 120 : IS_MOBILE ? 150 : 180;
     this.camera.updateProjectionMatrix();
   }
 

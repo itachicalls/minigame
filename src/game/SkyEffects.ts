@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { addMesh, mat, disposeObject3D } from './ModelUtils';
-import { IS_MOBILE } from './platform';
+import { IS_MOBILE, ENABLE_SKY_UFOS } from './platform';
 import type { SpectacleKind } from './SpectacleDirector';
 
 type SkyUfo = {
@@ -46,7 +46,7 @@ export class SkyEffects {
 
   build(levelLength: number, rng: () => number): void {
     this.clear();
-    const count = IS_MOBILE ? 4 : 5;
+    const count = ENABLE_SKY_UFOS ? (IS_MOBILE ? 4 : 5) : 0;
     for (let i = 0; i < count; i++) {
       const z = 40 + rng() * (levelLength + 80);
       const ufo = this.makeSkyUfo(rng);

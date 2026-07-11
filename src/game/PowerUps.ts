@@ -41,7 +41,7 @@ const POWER_THEME: Record<PowerUpKind, OrbTheme> = {
 const SEG = IS_MOBILE ? 10 : 14;
 const PARTICLE_COUNT = IS_MOBILE ? 4 : 6;
 
-function glowMat(color: string, intensity: number, opacity = 1): THREE.MeshStandardMaterial {
+function glowMat(color: string, intensity: number, opacity = 1): THREE.Material {
   return mat(color, {
     emissive: color,
     emissiveIntensity: intensity,
